@@ -1,330 +1,364 @@
-/* Familienzeit 0.7 – gemeinsame Termine via Supabase. Die Solo-Demo bleibt als separate HTML-Datei erhalten. */
-import {connect,api,auth,fetchAll,createEvent,respond,nudge,editEvent,addComment,addAlternative,markRead,watchChanges} from './backend.js';
-const PEOPLE = [
-  {id:'martin',name:'Martin',account:true,colors:['#8cbef1','#4787d0']},
-  {id:'stephanie',name:'Stephanie',account:true,colors:['#e8adc8','#b678a9']},
-  {id:'fynn',name:'Fynn',account:false,colors:['#b1d4af','#6caa91']},
-  {id:'sonja',name:'Sonja',account:true,colors:['#e9b09e','#d48786']},
-  {id:'mirco',name:'Mirco',account:true,colors:['#92b0d8','#7a8fc5']},
-  {id:'bela',name:'Bela',account:false,colors:['#e7ca91','#cda66c']},
-  {id:'ella',name:'Ella',account:false,colors:['#c4b5ea','#9d8dd2']},
-  {id:'holger',name:'Holger',account:true,colors:['#9ec2d5','#7196b1']},
-  {id:'ivonne',name:'Ivonne',account:true,colors:['#a9d9cb','#79b8ae']},
-  {id:'susanne',name:'Susanne',account:true,colors:['#eab8cf','#ba8caf']}
-];
-const ACCOUNT_IDS=['martin','stephanie','sonja','mirco','holger','ivonne','susanne'];
-const ALL_PEOPLE=[...PEOPLE].sort((a,b)=>a.name.localeCompare(b.name,'de'));
-// Kategorien sind explizite Nutzereingaben. Für alte lokale Termine gibt es einen lesenden Fallback.
+/* Familienzeit 0.8 · Online-Familienkalender · mobile first */
+import * as API from './backend.js';
+const $=q=>document.querySelector(q);
+const PEOPLE=['Martin','Stephanie','Fynn','Sonja','Mirco','Bela','Ella','Holger','Ivonne','Susanne'];
 const CATEGORIES=[
- {id:'coffee',label:'Kaffee & Kuchen',icon:'coffee'},
- {id:'birthday',label:'Geburtstag',icon:'gift'},
- {id:'dining',label:'Gemeinsam essen',icon:'utensils'},
- {id:'gathering',label:'Familientreffen',icon:'users'},
- {id:'party',label:'Feier',icon:'party'},
- {id:'trip',label:'Ausflug',icon:'car'},
- {id:'holiday',label:'Feiertage',icon:'tree'},
- {id:'other',label:'Sonstiges',icon:'calendar'}
+ {id:'coffee',name:'Kaffee & Kuchen',icon:'coffee'},
+ {id:'birthday',name:'Geburtstag',icon:'gift'},
+ {id:'dining',name:'Gemeinsam essen',icon:'utensils'},
+ {id:'gathering',name:'Familientreffen',icon:'users'},
+ {id:'party',name:'Feier',icon:'party'},
+ {id:'trip',name:'Ausflug',icon:'car'},
+ {id:'holiday',name:'Feiertag',icon:'tree'},
+ {id:'other',name:'Sonstiges',icon:'calendar'}
 ];
-const KEY='familienzeit.demo.0.1';
-const deepCopy=o=>JSON.parse(JSON.stringify(o));
-const E=(id,title,date,time,host,place,description,due,responses={})=>({
- id,title,date,time,host,place,description,due,
- category:({e1:'dining',e2:'holiday',e3:'coffee'})[id]||'other',
- teaser:({e1:'Sonja lädt zum gemeinsamen Abendessen ein.',e2:'Holger und Ivonne freuen sich auf einen schönen Abend.',e3:'Martin lädt zu Kaffee und Kuchen ein.'})[id]||'',
- invitees:PEOPLE.map(p=>p.id),responses,comments:[{id:'c'+id,author:host,text:'Wir freuen uns auf euch!',created:'2026-11-15T17:20:00'}],proposals:[],history:[],nudges:{},cancelled:false,created:'2026-11-16T06:40:00'
-});
-function demoSeed(){return {version:1,events:[
-  E('e1','Familienessen','2026-11-28','18:00','sonja','Bei Sonja','Gemeinsam essen und den Abend verbringen.','2026-11-23',{
-    sonja:{status:'yes',people:['sonja','mirco','bela','ella']},holger:{status:'yes',people:['holger','ivonne']}
-  }),
-  E('e2','Weihnachtsessen','2026-12-12','17:00','holger','Bei Holger und Ivonne','Adventlicher Abend mit der ganzen Familie.','2026-11-30',{
-    holger:{status:'yes',people:['holger','ivonne']},martin:{status:'yes',people:['martin','stephanie','fynn']}
-  }),
-  E('e3','Adventskaffee','2026-12-20','15:30','martin','Bei Martin','Kaffee, Kuchen und Zeit für die Familie.','2026-12-10',{
-    martin:{status:'yes',people:['martin','stephanie','fynn']}
-  })],notifications:[]};}
-let data={version:2,events:[],notifications:[]};
-let activeId='';
-let loginState='loading',authUser=null,personIdByLocal={},localIdByPerson={},userIdByLocal={},localIdByUser={};
-let refreshTimer=null,unwatch=null,changing=false;
-let page='home',modal=null,detailId=null,daySelected=today(),monthCursor=new Date(new Date().getFullYear(),new Date().getMonth(),1),statusFilter='all';
-const $=q=>document.querySelector(q), app=$('#app'), overlay=$('#overlay-root');
-function save(){/* Kein lokaler Schreibzugriff im Echtbetrieb. */}
-const person=id=>PEOPLE.find(p=>p.id===id)||{id,name:id,colors:['#a7b6c7','#60758c']};
-const safe=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const fmt=(date,opts={day:'numeric',month:'long',year:'numeric'})=>new Date(`${date}T12:00:00`).toLocaleDateString('de-DE',opts);
-const dayNum=date=>new Date(`${date}T12:00:00`).toLocaleDateString('de-DE',{day:'2-digit'});
-const shortMonth=date=>new Date(`${date}T12:00:00`).toLocaleDateString('de-DE',{month:'short'}).replace('.','').toUpperCase();
-const weekday=date=>new Date(`${date}T12:00:00`).toLocaleDateString('de-DE',{weekday:'short'}).replace('.','');
-const stamp=()=>new Date().toISOString();
-function icon(name,size=20){const paths={
-  calendar:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/>',
-  heart:'<path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l8.2 8.1a1 1 0 0 0 1.4 0l8.1-8.1a5.5 5.5 0 0 0 0-7.8Z"/>',
-  bell:'<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/>',
-  users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M16 3.5a4 4 0 0 1 0 7.9M22 21v-2a4 4 0 0 0-3-3.9"/><circle cx="9" cy="7" r="4"/>',
-  home:'<path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1V10Z"/>',
-  plus:'<path d="M12 5v14M5 12h14"/>',
-  chevron:'<path d="m9 18 6-6-6-6"/>',
-  left:'<path d="m15 18-6-6 6-6"/>',
-  check:'<path d="m5 12 4 4L19 6"/>',
-  clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
-  map:'<path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/>',
-  x:'<path d="M18 6 6 18M6 6l12 12"/>',
-  send:'<path d="m22 2-7 20-4-9-9-4 20-7ZM22 2 11 13"/>',
-  edit:'<path d="M12 20h9M16 4l4 4-12 12H4v-4L16 4Z"/>',
-  refresh:'<path d="M20 11a8 8 0 1 1-2-5.5L20 8M20 3v5h-5"/>',
-  alert:'<circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 17h.01"/>',
-  message:'<path d="M20 11.5a7.9 7.9 0 0 1-8 8.5 9 9 0 0 1-4-.9L3 21l1.7-5A8.4 8.4 0 0 1 4 12a8 8 0 0 1 8-8c4.4 0 8 3.2 8 7.5Z"/>',
-  info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
-  trash:'<path d="M4 7h16M10 4h4M6 7l1 14h10l1-14M10 11v6M14 11v6"/>',
-  people:'<circle cx="9" cy="8" r="3"/><path d="M3 19v-2a6 6 0 0 1 12 0v2M17 5a3 3 0 0 1 0 6M21 19v-2a5 5 0 0 0-3-4.6"/>',
-  spark:'<path d="m12 2 1.8 7.2L21 11l-7.2 1.8L12 20l-1.8-7.2L3 11l7.2-1.8L12 2ZM20 18v4M18 20h4"/>',
-  logout:'<path d="M10 17l5-5-5-5M15 12H3M12 3h6a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3h-6"/>',
-  down:'<path d="m6 9 6 6 6-6"/>',
-  archive:'<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v12h14V8M10 13h4"/>',
-  gift:'<rect x="3" y="10" width="18" height="11" rx="2"/><path d="M12 10v11M3 14h18M2 7h20v4H2zM12 7C6 7 6 2 9 2c2.5 0 3 5 3 5Zm0 0c6 0 6-5 3-5-2.5 0-3 5-3 5Z"/>',
-  coffee:'<path d="M4 9h13v5a6.5 6.5 0 0 1-13 0V9Zm13 1h2a3 3 0 1 1 0 6h-2M2 21h18M8 3v3M13 3v3"/>',
-  utensils:'<path d="M4 3v8a3 3 0 0 0 6 0V3M7 3v18M20 3c-3 0-4 4-4 8v3h4V3Zm0 11v7"/>',
-  party:'<path d="m5 21 3.6-14.3L18 17l-13 4Z M10 6l2-3M17 5l3-2M19 11l3 1M14 2h.01M20 20h.01"/>',
-  car:'<path d="M5 17h14l1-6-2-5H6l-2 5 1 6Zm0 0v3M19 17v3M5 12h14M7.5 14.5h.01M16.5 14.5h.01"/>',
-  tree:'<path d="m12 2 7 9h-4l5 7H4l5-7H5l7-9ZM12 18v4"/>'
-};return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]||paths.info}</svg>`;}
-function avatar(id,cls=''){const p=person(id);return `<span class="avatar ${cls}" aria-hidden="true" style="--avatar-1:${p.colors[0]};--avatar-2:${p.colors[1]}">${safe(p.name.slice(0,2).toUpperCase())}</span>`;}
-const sorted=()=>[...data.events].sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
-const counts=ev=>({total:new Set(Object.values(ev.responses).filter(r=>r.status==='yes').flatMap(r=>r.people||[])).size,accepted:Object.values(ev.responses).filter(r=>r.status==='yes').length,pending:ACCOUNT_IDS.filter(id=>ev.invitees.includes(id)&&!ev.responses[id]).length});
-const response=ev=>ev.responses[activeId]?.status||'pending';
-const statusLabel=s=>({yes:'Zugesagt',no:'Abgesagt',maybe:'Vielleicht',pending:'Antwort offen',cancelled:'Abgesagt'})[s]||s;
-function notification(to,title,body,ev){data.notifications.unshift({id:'n'+Math.random().toString(36).slice(2),to,title,body,ev,created:stamp(),read:false});}
-function notifyAll(ev,title,body){for(const id of ACCOUNT_IDS){if(id!==activeId&&ev.invitees.includes(id))notification(id,title,body,ev.id);}}
-function toast(t){const n=$('#toast-root');n.innerHTML=`<div class="toast">${safe(t)}</div>`;setTimeout(()=>{if(n)n.innerHTML=''},3600);}
-function categoryFor(ev){
- const selected=CATEGORIES.find(c=>c.id===ev.category);if(selected)return selected;
- const title=String(ev.title||'').toLowerCase();
- const fallback=/weihnacht|ostern|feiertag/.test(title)?'holiday':/geburtstag|geschenk/.test(title)?'birthday':/kaffee|kuchen|tee/.test(title)?'coffee':/essen|frühstück|brunch|grillen/.test(title)?'dining':/ausflug|wander|fahrt/.test(title)?'trip':'gathering';
- return CATEGORIES.find(c=>c.id===fallback);
+const VARIANTS=[{id:'soft',name:'Dezent'},{id:'illustrated',name:'Motiv'},{id:'warm',name:'Warm'}];
+const path={
+ heart:'<path d="M20.8 4.7a5.6 5.6 0 0 0-7.9 0L12 5.6l-.9-.9a5.6 5.6 0 0 0-7.9 7.9L12 21l8.8-8.4a5.6 5.6 0 0 0 0-7.9Z"/>',
+ calendar:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 2v6M17 2v6M3 10h18"/>',
+ bell:'<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/>',
+ plus:'<path d="M12 4v16M4 12h16"/>',
+ chevron:'<path d="m9 5 7 7-7 7"/>',
+ left:'<path d="m15 5-7 7 7 7"/>',
+ down:'<path d="m5 9 7 7 7-7"/>',
+ check:'<path d="m5 12 5 5L20 7"/>',
+ x:'<path d="M5 5 19 19M19 5 5 19"/>',
+ clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l4 2"/>',
+ gift:'<rect x="3" y="10" width="18" height="11" rx="2"/><path d="M12 10v11M3 14h18M2 7h20v4H2zM12 7C6 7 6 2 9 2c2.5 0 3 5 3 5Zm0 0c6 0 6-5 3-5-2.5 0-3 5-3 5Z"/>',
+ coffee:'<path d="M4 9h13v5a6.5 6.5 0 0 1-13 0V9Zm13 1h2a3 3 0 1 1 0 6h-2M2 21h18M8 3v3M13 3v3"/>',
+ utensils:'<path d="M4 3v8a3 3 0 0 0 6 0V3M7 3v18M20 3c-3 0-4 4-4 8v3h4V3Zm0 11v7"/>',
+ users:'<circle cx="9" cy="8" r="3"/><path d="M2 20v-3a6 6 0 0 1 12 0v3M16 5a3 3 0 0 1 0 6M17 14a5 5 0 0 1 5 5v1"/>',
+ party:'<path d="m5 21 3.6-14.3L18 17l-13 4Z M10 6l2-3M17 5l3-2M19 11l3 1M14 2h.01M20 20h.01"/>',
+ car:'<path d="M5 17h14l1-6-2-5H6l-2 5 1 6Zm0 0v3M19 17v3M5 12h14M7.5 14.5h.01M16.5 14.5h.01"/>',
+ tree:'<path d="m12 2 7 9h-4l5 7H4l5-7H5l7-9ZM12 18v4"/>',
+ home:'<path d="m3 11 9-8 9 8v10h-7v-7h-4v7H3z"/>',
+ edit:'<path d="m4 16 12-12 4 4L8 20H4zM14 6l4 4"/>',
+ message:'<path d="M20 4H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h3l4 3v-3h9a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2Z"/>',
+ send:'<path d="M21 3 3 11l7 3 3 7 8-18ZM10 14 21 3"/>',
+ map:'<path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2V5Zm6-2v16M15 5v16"/>',
+ camera:'<path d="M3 7h4l2-3h6l2 3h4v13H3V7Zm9 4a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"/>',
+ info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>',
+ sparkle:'<path d="m12 2 2.2 7.8L22 12l-7.8 2.2L12 22l-2.2-7.8L2 12l7.8-2.2L12 2Z"/>',
+ arrow:'<path d="M4 12h16m-7-7 7 7-7 7"/>',
+ logout:'<path d="M9 3H4v18h5M15 8l4 4-4 4M19 12H8"/>',
+ image:'<rect x="2" y="3" width="20" height="18" rx="3"/><circle cx="8" cy="9" r="2"/><path d="m3 19 6-6 4 3 3-4 5 6"/>',
+ shield:'<path d="M12 2 4 6v5c0 6 3 9 8 11 5-2 8-5 8-11V6l-8-4Z"/>',
+ refresh:'<path d="M20 7v5h-5M4 17v-5h5M6 9a7 7 0 0 1 12-2l2 5M4 12l2 5a7 7 0 0 0 12-2"/>'
+};
+function icon(name,size=22){return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path[name]||path.info}</svg>`;}
+function safe(s){return String(s??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));}
+function localDate(){const d=new Date();return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');}
+function iso(y,m,d){return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;}
+function fmt(date,options={day:'numeric',month:'long',year:'numeric'}){if(!date)return 'Nicht angegeben';return new Date(String(date).slice(0,10)+'T12:00:00').toLocaleDateString('de-DE',options);}
+function monthShort(date){return fmt(date,{month:'short'}).replace('.','').toUpperCase();}
+function weekday(date){return fmt(date,{weekday:'short'});}
+function dateNowAtNoon(date){return new Date(String(date).slice(0,10)+'T12:00:00');}
+function daysBetween(a,b){return Math.round((Date.UTC(+b.slice(0,4),+b.slice(5,7)-1,+b.slice(8,10))-Date.UTC(+a.slice(0,4),+a.slice(5,7)-1,+a.slice(8,10)))/86400000);}
+function birthdayInYear(person,year){if(!person?.birth_date)return null;const m=+person.birth_date.slice(5,7),d=+person.birth_date.slice(8,10);const last=new Date(year,m,0).getDate();return iso(year,m,Math.min(d,last));}
+function nextBirthday(person){if(!person?.birth_date)return null;const t=localDate(),y=+t.slice(0,4);let date=birthdayInYear(person,y);if(date<t)date=birthdayInYear(person,y+1);return {date,days:daysBetween(t,date)};}
+function upcomingBirthdays(){return data.people.filter(p=>p.birth_date).map(p=>({...p,next:nextBirthday(p)})).sort((a,b)=>a.next.days-b.next.days);}
+const typeName=id=>CATEGORIES.find(c=>c.id===id)?.name||'Sonstiges';
+const typeIcon=id=>CATEGORIES.find(c=>c.id===id)?.icon||'calendar';
+const bgName=id=>VARIANTS.find(v=>v.id===id)?.name||'Motiv';
+function toast(msg){const el=$('#toast-root');el.textContent=msg;el.classList.add('show');clearTimeout(toast.timer);toast.timer=setTimeout(()=>{el.classList.remove('show');},4400);}
+let page='home',modal=null,user=null,mode='loading',lastError='',loadingAction=false,month=new Date(),selectedDay=localDate(),birthdayDraft=null;
+let unsubscribe=null,refreshTimeout=null,avatarCache=new Map(),peopleById=new Map(),accountsByUser=new Map();
+let data={people:[],person_managers:[],events:[],event_invites:[],rsvps:[],rsvp_attendees:[],comments:[],alternatives:[],notifications:[]};
+const profileByUser=()=>data.people.find(p=>p.auth_user_id===user?.id)||null;
+const me=()=>profileByUser();
+const person=id=>peopleById.get(id)||{id,display_name:'Person',birth_date:null,can_login:false};
+const canManage=id=>{
+  const own=me();if(!own)return false;
+  return id===own.id||data.person_managers.some(m=>m.person_id===id&&m.manager_person_id===own.id);
+};
+const personalId=id=>person(id).id;
+function avatar(p,size='md'){
+  if(typeof p==='string')p=person(p);
+  const color=PEOPLE.indexOf(p.display_name||'')%7;
+  const src=avatarCache.get(p.id)?.url;
+  return `<span class="avatar ${size} tone-${color<0?0:color}" aria-hidden="true">${src?`<img src="${safe(src)}" alt="" loading="lazy">`:`<span>${safe((p.display_name||'?').slice(0,2).toUpperCase())}</span>`}</span>`;
 }
-function eventIcon(ev){return categoryFor(ev).icon;}
-function categoryPicker(selected='gathering'){
- return `<fieldset class="category-field"><legend>Was für ein Treffen?</legend><div class="category-grid">${CATEGORIES.map(c=>`<label class="category-option"><input type="radio" name="category" value="${c.id}" ${selected===c.id?'checked':''} required><span class="category-face"><span class="category-icon">${icon(c.icon,32)}</span><span class="category-label">${safe(c.label)}</span></span></label>`).join('')}</div></fieldset>`;
-}
-function statusHTML(ev){const s=ev.cancelled?'cancelled':response(ev);return `<span class="status ${s}">${icon(s==='yes'?'check':s==='cancelled'?'x':s==='pending'?'clock':'info',18)} ${statusLabel(s)}${s==='yes'?` · ${(ev.responses[activeId]?.people||[]).length} Pers.`:''}</span>`;}
-function eventCard(ev){const c=counts(ev),cat=categoryFor(ev);return `<button class="event-card ${ev.cancelled?'cancelled':''}" type="button" data-action="detail" data-id="${safe(ev.id)}" aria-label="${safe(ev.title)}, ${safe(fmt(ev.date))}, ${safe(ev.time)} Uhr, Einladung von ${safe(person(ev.host).name)}"><div class="event-primary"><div class="date-tile"><span class="month">${shortMonth(ev.date)}</span><span class="day">${dayNum(ev.date)}</span><span class="weekday">${weekday(ev.date)}</span><span class="event-symbol" aria-label="${safe(cat.label)}" title="${safe(cat.label)}">${icon(eventIcon(ev),29)}</span></div><div class="event-content"><div class="event-meta">${icon('clock',20)} ${safe(ev.time)} Uhr</div><div class="event-title-line"><div class="event-title">${safe(ev.title)}</div></div><div class="host-line">${avatar(ev.host,'sm')} ${safe(person(ev.host).name)} lädt ein</div>${statusHTML(ev)}</div></div>${ev.teaser?`<p class="event-teaser">${safe(ev.teaser)}</p>`:''}<div class="card-footer"><span class="footer-left"><span class="detail-piece">${icon('people',21)} ${c.total} Personen</span><span class="detail-piece">${icon('message',21)} ${ev.comments.length}</span></span><span class="chevron-bubble">${icon('chevron',23)}</span></div></button>`;}
-function header(){let newNotifs=data.notifications.filter(n=>n.to===activeId&&!n.read).length;return `<header class="app-header"><div class="brand"><div class="brand-mark">${icon('heart',27)}</div><div><div class="brand-name">Familienzeit</div></div></div><div class="header-right"><button class="icon-btn" data-action="notifications" aria-label="Mitteilungen anzeigen">${icon('bell',28)}${newNotifs?'<span class="dot"></span>':''}</button><button class="avatar-button" data-action="accounts" aria-label="Mein Konto">${avatar(activeId)}</button></div></header>`;}
-function nav(){return `<nav class="bottom-nav" aria-label="Hauptnavigation"><button class="nav-item ${page==='home'?'active':''}" data-action="page" data-page="home">${icon('home',30)}<span>Start</span></button><button class="nav-item ${page==='calendar'?'active':''}" data-action="page" data-page="calendar">${icon('calendar',30)}<span>Kalender</span></button><button class="nav-item create" data-action="create">${icon('plus',32)}<span>Neu</span></button><button class="nav-item ${page==='family'?'active':''}" data-action="page" data-page="family">${icon('users',30)}<span>Familie</span></button></nav>`;}
-function home(){const upcoming=sorted().filter(e=>e.date>=today()&&!e.cancelled);const pending=upcoming.filter(e=>e.invitees.includes(activeId)&&response(e)==='pending');const visible=statusFilter==='pending'?pending:statusFilter==='mine'?upcoming.filter(e=>e.invitees.includes(activeId)):upcoming;return `<section class="hero"><h1 class="hero-title">Zeit <em>füreinander.</em></h1><p class="hero-desc">Hallo ${safe(person(activeId).name)}! Hier siehst du eure nächsten Termine.</p><span class="hero-art" aria-hidden="true">${icon('heart',39)}</span></section><button class="callout glass" style="width:100%;text-align:left;border:1px solid white" data-action="pending"><span class="callout-icon">${icon('bell',25)}</span><span style="flex:1"><h3>${pending.length?`${pending.length} ${pending.length===1?'Rückmeldung':'Rückmeldungen'} offen`:'Alles beantwortet!'}</h3><p>${pending.length?'Hier wird noch deine Antwort benötigt.':'Du hast auf alle Einladungen geantwortet.'}</p></span><span class="callout-arrow">${icon('chevron',21)}</span></button><div class="section-heading"><h2>Nächste Termine</h2><button class="text-btn" data-action="filter">${statusFilter==='all'?'Alle anzeigen':statusFilter==='pending'?'Nur offene':'Meine Termine'} ${icon('down',13)}</button></div><section class="event-list">${visible.length?visible.map(eventCard).join(''):'<div class="empty">Keine passenden Termine vorhanden.</div>'}</section>`;}
-function today(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
-function monthString(){return monthCursor.toLocaleDateString('de-DE',{month:'long',year:'numeric'});}
-function calendar(){let year=monthCursor.getFullYear(),month=monthCursor.getMonth(),first=(new Date(year,month,1).getDay()+6)%7,days=new Date(year,month+1,0).getDate();let cells='';for(let i=0;i<first;i++)cells+='<div class="date-button blank"></div>';for(let d=1;d<=days;d++){const iso=`${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`,has=data.events.some(e=>e.date===iso);cells+=`<button class="date-button ${iso===daySelected?'selected':''} ${iso===today()?'today':''}" data-action="day" data-date="${iso}" aria-label="${fmt(iso)}${has?', Termine vorhanden':''}">${d}${has?'<span class="date-dot"></span>':'<span style="height:5px"></span>'}</button>`;}const dayEvents=sorted().filter(e=>e.date===daySelected);return `<div class="page-intro"><p class="eyebrow">ALLE TERMINE</p><h1>Kalender</h1><p>Tippe auf einen Tag, um zu sehen, was geplant ist.</p></div><section class="calendar-box glass"><div class="month-head"><h2>${safe(monthString())}</h2><div class="month-arrows"><button class="round-btn" aria-label="Vorheriger Monat" data-action="prev-month">${icon('left')}</button><button class="round-btn" aria-label="Nächster Monat" data-action="next-month">${icon('chevron')}</button></div></div><div class="week-grid">${['Mo','Di','Mi','Do','Fr','Sa','So'].map(s=>`<div class="weekday-head">${s}</div>`).join('')}</div><div class="dates-grid">${cells}</div></section><section class="day-events"><div class="section-heading"><h2>${safe(fmt(daySelected,{weekday:'long',day:'numeric',month:'long'}))}</h2></div><div class="event-list">${dayEvents.length?dayEvents.map(eventCard).join(''):'<div class="empty">Für diesen Tag ist noch nichts geplant.</div>'}</div></section>`;}
-function family(){return `<div class="page-intro"><h1>Alle Personen</h1><p>${ACCOUNT_IDS.length} App-Nutzer · ${PEOPLE.length-ACCOUNT_IDS.length} Personen ohne eigenes Login.</p></div><section class="family-card glass"><div class="family-heading"><h2>${icon('users',27)} Personen</h2><span class="count-chip">${PEOPLE.length} insgesamt</span></div>${ALL_PEOPLE.map(p=>`<div class="family-member">${avatar(p.id,'lg')}<div class="person-info"><div class="member-name">${safe(p.name)}${p.id===activeId?' <span class="you-marker">(Du)</span>':''}</div>${p.account?`<div class="member-sub">${icon('check',17)} App-Nutzer</div>`:''}</div></div>`).join('')}</section><div class="demo-ribbon">${icon('info',22)} Profilbilder können wir später für jede Person ergänzen.</div>`;}
-function render(){
- if(loginState!=='ready'){app.innerHTML=loginScreen();overlay.innerHTML='';return;}
- app.innerHTML=`<div class="app-shell">${header()}<main>${page==='home'?home():page==='calendar'?calendar():family()}</main></div>${nav()}`;
- if(modal)renderModal();
-}
-function openModal(type,id){modal=type;detailId=id||null;overlay.innerHTML='';renderModal();document.body.style.overflow='hidden';}
-function closeModal(){modal=null;overlay.innerHTML='';document.body.style.overflow='';render();}
-const sheet=(title,body)=>`<div class="overlay" data-action="close-backdrop"><section class="sheet" role="dialog" aria-modal="true" aria-label="${safe(title)}"><div class="sheet-handle"></div><div class="sheet-head"><h2>${safe(title)}</h2><button class="sheet-close" type="button" aria-label="Schließen" data-action="close">${icon('x',21)}</button></div>${body}</section></div>`;
-function groupChecks(selected,field='invitees'){return `<div class="panel selection-panel"><div class="panel-title">${icon('users',25)} Personen auswählen</div>${ALL_PEOPLE.map(p=>`<label class="person-check"><span class="person-label">${avatar(p.id,'sm')}<span>${safe(p.name)}${p.id===activeId&&field==='invitees'?' (Du)':''}</span></span><input class="check" type="checkbox" name="${field}" value="${safe(p.id)}" ${selected.includes(p.id)?'checked':''} ${p.id===activeId&&field==='invitees'?'disabled':''} aria-label="${safe(p.name)} auswählen"></label>`).join('')}</div>`;}
-function minTomorrow(){const d=new Date();d.setDate(d.getDate()+1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
-function createForm(){const due=minTomorrow(),suggestDate=new Date();suggestDate.setDate(suggestDate.getDate()+14);const future=`${suggestDate.getFullYear()}-${String(suggestDate.getMonth()+1).padStart(2,'0')}-${String(suggestDate.getDate()).padStart(2,'0')}`;return `<form id="create-form"><p class="small-desc">Die Einladung wird mit allen Familienmitgliedern synchronisiert.</p>${categoryPicker()}<div class="field"><label for="new-title">Was ist geplant?</label><input id="new-title" class="input" name="title" placeholder="z. B. Familienfrühstück" required maxlength="100" autofocus></div><div class="field-row"><div class="field"><label for="new-date">Datum</label><input id="new-date" class="input" type="date" name="date" min="${today()}" value="${future}" required></div><div class="field"><label for="new-time">Uhrzeit</label><input id="new-time" class="input" type="time" name="time" value="15:00" required></div></div><div class="field"><label for="new-teaser">Kurzer Einladungssatz (optional)</label><input id="new-teaser" class="input" name="teaser" maxlength="90" placeholder="z. B. Martin lädt zu Kaffee und Kuchen ein."><p class="input-hint">Bis zu 90 Zeichen · erscheint auf der Startseite</p></div><div class="field"><label for="new-location">Ort / Adresse</label><input id="new-location" class="input" name="place" placeholder="z. B. Bei Martin" maxlength="160"></div><div class="field"><label for="new-description">Beschreibung (optional)</label><textarea id="new-description" class="input" name="description" placeholder="Gibt es etwas Wichtiges zu wissen?" maxlength="1200"></textarea></div><h3>Wer ist eingeladen?</h3><p class="small-desc">Du wirst automatisch eingeladen. Weitere Personen lassen sich einzeln auswählen.</p>${groupChecks(PEOPLE.map(p=>p.id))}<h3>Antwortfrist</h3><div class="field"><label for="new-due">Bitte antworten bis</label><input id="new-due" class="input" type="date" name="due" value="${due}" required></div><button class="solid-btn" type="submit" style="width:100%">${icon('plus',20)} Termin erstellen</button></form>`;}
-function attendResponseLabels(ev){return ACCOUNT_IDS.filter(p=>ev.invitees.includes(p)).map(id=>{const r=ev.responses[id]||{status:'pending',people:[]};return `<div class="family-member">${avatar(id,'sm')}<div><div class="member-name">${safe(person(id).name)}</div><div class="member-sub">${safe(statusLabel(r.status))}${r.status==='yes'?` · ${(r.people||[]).map(p=>person(p).name).join(', ')}`:''}</div></div>${r.status==='pending'&&ev.host===activeId&&id!==activeId?`<button class="pill-btn right" data-action="nudge" data-id="${safe(ev.id)}" data-to="${id}">Stupser</button>`:''}</div>`;}).join('')}
-function RSVPPanel(ev){const invited=ev.invitees.includes(activeId),r=ev.responses[activeId],s=r?.status||'pending';if(!invited)return '<p class="small-desc">Du bist nicht persönlich eingeladen.</p>';if(ev.cancelled)return '<p class="small-desc">Der Termin wurde abgesagt. Eine Rückmeldung ist nicht mehr möglich.</p>';const companionIds=ALL_PEOPLE.filter(p=>p.id!==activeId).map(p=>p.id);const selected=r?.people||[activeId];return `<div class="panel"><div class="panel-title">Deine Rückmeldung</div>${!r?'<p class="small-desc">Du hast auf diesen Termin noch nicht geantwortet.</p>':`<p class="small-desc">Aktueller Status: <b>${statusLabel(s)}</b>. Du kannst ihn jederzeit ändern.</p>`}<div class="rsvp-buttons"><button type="button" data-action="rsvp" data-id="${ev.id}" data-response="yes" class="${s==='yes'?'active':''}">${icon('check',28)} Zusagen</button><button type="button" data-action="rsvp" data-id="${ev.id}" data-response="maybe" class="${s==='maybe'?'active':''}">${icon('info',28)} Vielleicht</button><button type="button" data-action="rsvp" data-id="${ev.id}" data-response="no" class="${s==='no'?'active':''}">${icon('x',28)} Absagen</button></div>${s==='yes'?`<h3>Wer kommt mit?</h3><p class="small-desc">Du bist automatisch dabei. Weitere Personen kannst du auswählen. App-Nutzer können zusätzlich selbst auf Einladungen antworten. Jede Person wird höchstens einmal gezählt.</p>${companionIds.map(id=>`<label class="person-check"><span>${avatar(id,'sm')} <span style="font-weight:700">${safe(person(id).name)}</span></span><input type="checkbox" class="check" data-action="companion" data-event="${ev.id}" data-person="${id}" ${selected.includes(id)?'checked':''}></label>`).join('')}<div class="sub-panel" style="margin-top:12px"><strong>${new Set(selected).size} Personen</strong> in deiner Zusage erfasst.</div>`:''}</div>`;}
-function detail(ev){const total=counts(ev),hasPlace=!!ev.place;const maps=hasPlace?`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(ev.place)}`:'';return `<div class="detail-header"><span class="detail-category">${icon(eventIcon(ev),24)} ${safe(categoryFor(ev).label)}</span><span class="overline">${safe(fmt(ev.date,{weekday:'long',day:'numeric',month:'long',year:'numeric'}).toUpperCase())}</span><h2>${safe(ev.title)}</h2>${ev.cancelled?'<span class="status cancelled">Termin abgesagt</span>':`<span class="status ${response(ev)}">${statusLabel(response(ev))}</span>`}</div>${ev.teaser?`<p class="detail-teaser">${safe(ev.teaser)}</p>`:''}<div class="detail-info"><div class="info-line">${icon('clock',20)} ${safe(ev.time)} Uhr · ${safe(fmt(ev.date))}</div><div class="info-line">${icon('people',20)} Gastgeber: ${safe(person(ev.host).name)}</div>${hasPlace?`<div class="info-line">${icon('map',20)} <span>${safe(ev.place)}<div style="margin-top:3px"><a class="link-button" href="${maps}" target="_blank" rel="noopener noreferrer">In Google Maps öffnen ↗</a></div></span></div>`:''}${ev.description?`<div class="info-line">${icon('info',20)} ${safe(ev.description)}</div>`:''}<div class="info-line">${icon('calendar',20)} Antwortfrist: ${safe(fmt(ev.due))}</div></div>${RSVPPanel(ev)}<div class="panel"><div class="panel-title">Teilnehmer · ${total.total} Personen zugesagt</div>${attendResponseLabels(ev)}</div>${ev.proposals?.length?`<div class="panel"><div class="panel-title">Alternativvorschläge</div>${ev.proposals.map((p,i)=>`<div class="family-member" style="align-items:flex-start"><div>${avatar(p.author,'sm')}</div><div style="flex:1"><div class="member-name">${safe(fmt(p.date))}, ${safe(p.time)} Uhr</div><div class="member-sub">Vorgeschlagen von ${safe(person(p.author).name)}</div></div>${ev.host===activeId&&!ev.cancelled?`<button class="pill-btn" data-action="accept-proposal" data-id="${ev.id}" data-index="${i}">Übernehmen</button>`:''}</div>`).join('')}</div>`:''}<div class="action-row">${!ev.cancelled?`<button class="outline-btn" data-action="propose" data-id="${ev.id}">${icon('calendar',18)} Alternativtermin</button>`:''}</div>${ev.host===activeId&&!ev.cancelled?`<div class="panel"><div class="panel-title">Gastgeber-Aktionen</div><button class="outline-btn" style="width:100%" data-action="edit" data-id="${ev.id}">${icon('edit',17)} Termindetails bearbeiten</button><div class="action-row"><button class="outline-btn" data-action="reschedule" data-id="${ev.id}">${icon('calendar',17)} Verschieben</button><button class="outline-btn danger-btn" data-action="cancel" data-id="${ev.id}">${icon('x',17)} Absagen</button></div><p class="small-desc">Beim Verschieben müssen alle erneut zusagen. Alle erhalten eine Mitteilung in der App. Push-Benachrichtigungen folgen später.</p></div>`:''}<div class="panel"><div class="panel-title">Kommentare · ${ev.comments.length}</div>${ev.comments.map(c=>`<div class="comment">${avatar(c.author,'sm')}<div class="comment-body"><span class="comment-name">${safe(person(c.author).name)}</span><span class="comment-date">${fmt(c.created.slice(0,10),{day:'numeric',month:'short'})}</span><div class="comment-text">${safe(c.text)}</div></div></div>`).join('')||'<p class="entry-empty">Noch keine Kommentare.</p>'}${!ev.cancelled?`<form data-form="comment" data-id="${ev.id}" class="field" style="margin-top:13px"><label for="comment-text">Kommentar hinzufügen</label><textarea id="comment-text" class="input" name="text" required maxlength="1000" placeholder="Schreibe einen Kommentar ..."></textarea><button class="solid-btn" type="submit">${icon('send',17)} Kommentar senden</button></form>`:''}</div>${ev.history?.length?`<div class="panel"><div class="panel-title">Änderungsverlauf</div>${ev.history.map(h=>`<div class="history">${safe(h)}</div>`).join('')}</div>`:''}`;}
-function accountOptions(){return `<div class="account-option current">${avatar(activeId)}<span>${safe(person(activeId).name)} · angemeldet</span>${icon('check',19)}</div><p class="small-desc">Dein Konto wird automatisch erkannt. Alle sieben Erwachsenen können ihre eigenen Termine verwalten.</p><button class="outline-btn" data-action="logout" style="width:100%">${icon('x',18)} Abmelden</button>`;}
-function notificationList(){const visible=data.notifications.filter(n=>n.to===activeId);data.notifications.forEach(n=>{if(n.to===activeId)n.read=true});save();return `${visible.length?visible.map(n=>`<div class="notification-item"><strong>${safe(n.title)}</strong><p>${safe(n.body)}</p><time>${new Date(n.created).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'})}</time>${n.ev?`<div style="margin-top:8px"><button class="link-button" data-action="detail" data-id="${n.ev}">Termin ansehen</button></div>`:''}</div>`).join(''):'<div class="empty">Noch keine Mitteilungen. Hier erscheinen Einladungen und Änderungen aus deiner Familien-App.</div>'}<div class="demo-ribbon" style="margin-top:18px">${icon('info',16)} Mitteilungen sind bereits in der App sichtbar. System-Push folgt in der nächsten Ausbaustufe.</div>`;}
-function renderModal(){if(!modal){overlay.innerHTML='';return}const scroll=overlay.querySelector('.sheet')?.scrollTop||0;let title='',body='';if(modal==='create'){title='Neuen Termin';body=createForm();}else if(modal==='detail'){const e=data.events.find(ev=>ev.id===detailId);if(!e){closeModal();return}title='Termindetails';body=detail(e);}else if(modal==='accounts'){title='Mein Konto';body=accountOptions();}else if(modal==='notifications'){title='Mitteilungen';body=notificationList();}else if(modal==='propose'){title='Alternative vorschlagen';const ev=data.events.find(e=>e.id===detailId);body=`<p class="small-desc">Der ursprüngliche Termin bleibt unverändert, bis ${safe(person(ev.host).name)} den Vorschlag übernimmt.</p><form id="propose-form" data-id="${ev.id}"><div class="field-row"><div class="field"><label for="proposal-date">Neues Datum</label><input class="input" id="proposal-date" type="date" name="date" value="${ev.date}" required></div><div class="field"><label for="proposal-time">Neue Uhrzeit</label><input class="input" id="proposal-time" type="time" name="time" value="${ev.time}" required></div></div><button class="solid-btn" style="width:100%" type="submit">${icon('send',18)} Vorschlag einreichen</button></form>`;}else if(modal==='edit'){title='Details bearbeiten';const ev=data.events.find(e=>e.id===detailId);body=`<p class="small-desc">Änderungen an Ort, Beschreibung oder Antwortfrist werden den Eingeladenen als Mitteilung in der App angezeigt. Für Datum und Uhrzeit nutze bitte „Verschieben“.</p><form id="edit-form" data-id="${ev.id}">${categoryPicker(categoryFor(ev).id)}<div class="field"><label for="edit-title">Titel</label><input id="edit-title" class="input" name="title" required maxlength="100" value="${safe(ev.title)}"></div><div class="field"><label for="edit-teaser">Kurzer Einladungssatz (optional)</label><input id="edit-teaser" class="input" name="teaser" maxlength="90" value="${safe(ev.teaser||'')}" placeholder="Ein Satz für die Startseite"><p class="input-hint">Maximal 90 Zeichen</p></div><div class="field"><label for="edit-place">Ort / Adresse</label><input id="edit-place" class="input" name="place" maxlength="160" value="${safe(ev.place)}"></div><div class="field"><label for="edit-description">Beschreibung</label><textarea id="edit-description" class="input" name="description" maxlength="1200">${safe(ev.description)}</textarea></div><div class="field"><label for="edit-due">Antwortfrist</label><input id="edit-due" class="input" type="date" name="due" value="${ev.due}" required></div><button class="solid-btn" style="width:100%" type="submit">${icon('check',18)} Änderungen speichern</button></form>`;}else if(modal==='reschedule'){title='Termin verschieben';const ev=data.events.find(e=>e.id===detailId);body=`<p class="small-desc">Alle bisherigen Rückmeldungen werden zurückgesetzt. Alle eingeladenen App-Nutzer müssen erneut antworten.</p><form id="reschedule-form" data-id="${ev.id}"><div class="field-row"><div class="field"><label for="move-date">Neues Datum</label><input id="move-date" class="input" type="date" name="date" value="${ev.date}" required></div><div class="field"><label for="move-time">Neue Uhrzeit</label><input id="move-time" class="input" type="time" name="time" value="${ev.time}" required></div></div><div class="field"><label for="move-due">Neue Antwortfrist</label><input id="move-due" class="input" type="date" name="due" value="${ev.due}" required></div><button class="solid-btn" style="width:100%" type="submit">${icon('refresh',18)} Termin verschieben</button></form>`;}
-  overlay.innerHTML=sheet(title,body);const current=overlay.querySelector('.sheet');if(current)current.scrollTop=scroll;
-}
-function transitionPage(dest){page=dest;statusFilter='all';window.scrollTo({top:0,behavior:'instant'});render();}
-function updateResponse(ev,status){if(ev.cancelled)return;if(!ev.invitees.includes(activeId)){toast('Du bist nicht eingeladen.');return;}const existing=ev.responses[activeId];const saved=(existing?.people||[]).filter(id=>PEOPLE.some(p=>p.id===id));ev.responses[activeId]={status,people:status==='yes'?(saved.length?saved:[activeId]).includes(activeId)?(saved.length?saved:[activeId]):[activeId,...saved]:[]};ev.history.unshift(`${person(activeId).name}: ${statusLabel(status)} (${new Date().toLocaleDateString('de-DE')})`);save();render();toast(`Antwort gespeichert: ${statusLabel(status)}`);}
-function handlerClick(ev){const target=ev.target.closest('[data-action]');if(!target)return;const action=target.dataset.action;const id=target.dataset.id;if(action==='close-backdrop'){if(ev.target===target)closeModal();return;}if(action==='close'){closeModal();return;}if(action==='page'){transitionPage(target.dataset.page);return;}if(action==='create'){openModal('create');return;}if(action==='detail'){openModal('detail',id);return;}if(action==='notifications'){openModal('notifications');render();return;}if(action==='accounts'){openModal('accounts');return;}if(action==='switch'){activeId=id;try{sessionStorage.setItem('familienzeit.demo.user',activeId);}catch{}closeModal();toast(`Testprofil: ${person(activeId).name}`);return;}if(action==='pending'){statusFilter='pending';render();setTimeout(()=>document.querySelector('.section-heading')?.scrollIntoView({block:'start',behavior:'smooth'}),30);return;}if(action==='filter'){statusFilter=statusFilter==='all'?'pending':statusFilter==='pending'?'mine':'all';render();return;}if(action==='prev-month'||action==='next-month'){monthCursor.setMonth(monthCursor.getMonth()+(action==='next-month'?1:-1));const y=monthCursor.getFullYear(),m=monthCursor.getMonth();daySelected=`${y}-${String(m+1).padStart(2,'0')}-01`;render();return;}if(action==='day'){daySelected=target.dataset.date;render();return;}if(action==='rsvp'){const e=data.events.find(e=>e.id===id);if(e)updateResponse(e,target.dataset.response);return;}if(action==='propose'||action==='reschedule'||action==='edit'){openModal(action,id);return;}if(action==='nudge'){const e=data.events.find(e=>e.id===id),to=target.dataset.to;if(!e||e.host!==activeId||e.cancelled||e.responses[to])return;let last=e.nudges[to]||0;if(Date.now()-last<86400000){toast('Dieser Stupser wurde bereits gesendet (24-Stunden-Sperre).');return;}e.nudges[to]=Date.now();notification(to,`${person(activeId).name} erinnert dich`, `Bitte antworte auf „${e.title}“. (Demo-Mitteilung)`,e.id);save();render();toast(`Demo-Stupser für ${person(to).name} gespeichert`);return;}if(action==='cancel'){const e=data.events.find(e=>e.id===id);if(!e||e.host!==activeId)return;if(!confirm(`„${e.title}“ wirklich absagen? Alle eingeladenen Nutzer werden benachrichtigt (Demo).`))return;e.cancelled=true;e.history.unshift(`Abgesagt von ${person(activeId).name} am ${new Date().toLocaleDateString('de-DE')}`);notifyAll(e,'Termin abgesagt',`„${e.title}“ findet nicht statt. (Demo-Mitteilung)`);save();render();toast('Termin abgesagt. Demo-Mitteilungen gespeichert.');return;}if(action==='accept-proposal'){const e=data.events.find(e=>e.id===id),p=e?.proposals?.[Number(target.dataset.index)];if(!p||e.host!==activeId)return;if(!confirm('Alternativtermin übernehmen? Alle müssen erneut zusagen.'))return;rescheduleEvent(e,p.date,p.time,e.due);return;}if(action==='reset'){if(!confirm('Alle lokalen Teständerungen löschen und Beispieldaten wiederherstellen?'))return;data=demoSeed();save();transitionPage('home');toast('Demo zurückgesetzt.');return;}}
-function rescheduleEvent(e,date,time,due){if(!date||!time||!due||due>date){toast('Bitte gültige Daten angeben (Antwortfrist nicht nach Termin).');return;}if(e.date===date&&e.time===time){toast('Datum und Uhrzeit sind unverändert.');return;}const prev=`${fmt(e.date)} ${e.time}`;e.date=date;e.time=time;e.due=due;e.responses={};e.nudges={};e.history.unshift(`Verschoben von ${prev} auf ${fmt(date)} ${time}. Alle Zusagen erneut erforderlich.`);notifyAll(e,'Termin verschoben',`„${e.title}“ ist jetzt am ${fmt(date)} um ${time} Uhr. Bitte erneut antworten. (Demo-Mitteilung)`);save();openModal('detail',e.id);render();toast('Termin verschoben. Zusagen zurückgesetzt.');}
-function handlerSubmit(ev){const form=ev.target;ev.preventDefault();const fd=new FormData(form);if(form.id==='create-form'){let date=String(fd.get('date')),due=String(fd.get('due'));if(due>date){toast('Die Antwortfrist muss spätestens am Termintag liegen.');return;}const invited=Array.from(form.querySelectorAll('input[name="invitees"]:checked')).map(n=>n.value);invited.push(activeId);const evt={id:'e'+Math.random().toString(36).slice(2),title:String(fd.get('title')).trim(),date,time:String(fd.get('time')),category:String(fd.get('category')),teaser:String(fd.get('teaser')||'').trim(),place:String(fd.get('place')).trim(),description:String(fd.get('description')).trim(),due,host:activeId,invitees:[...new Set(invited)],responses:{},comments:[],proposals:[],nudges:{},history:[],cancelled:false,created:stamp()};if(!evt.title||!CATEGORIES.some(c=>c.id===evt.category)||evt.teaser.length>90){toast('Bitte Titel, Terminart und Kurzinfo prüfen.');return;}data.events.push(evt);notifyAll(evt,'Neuer Termin',`${person(activeId).name} hat „${evt.title}“ eingeladen. Bitte antworte bis ${fmt(due)}. (Demo-Mitteilung)`);save();openModal('detail',evt.id);render();toast('Termin lokal erstellt.');return;}if(form.dataset.form==='comment'){const e=data.events.find(e=>e.id===form.dataset.id),msg=String(fd.get('text')).trim();if(!e||!msg||e.cancelled)return;e.comments.push({id:'c'+Math.random(),author:activeId,text:msg,created:stamp()});save();openModal('detail',e.id);render();toast('Kommentar gespeichert.');return;}if(form.id==='propose-form'){const e=data.events.find(e=>e.id===form.dataset.id),date=String(fd.get('date')),time=String(fd.get('time'));if(!e||e.cancelled)return;if(date===e.date&&time===e.time){toast('Bitte ein anderes Datum oder eine andere Uhrzeit wählen.');return;}e.proposals.push({author:activeId,date,time,created:stamp()});if(e.host!==activeId)notification(e.host,'Alternativtermin vorgeschlagen',`${person(activeId).name} schlägt für „${e.title}“ ${fmt(date)}, ${time} Uhr vor.`,e.id);save();openModal('detail',e.id);render();toast('Alternativtermin vorgeschlagen.');return;}if(form.id==='edit-form'){const e=data.events.find(e=>e.id===form.dataset.id);if(!e||e.host!==activeId||e.cancelled)return;const title=String(fd.get('title')).trim(),place=String(fd.get('place')).trim(),description=String(fd.get('description')).trim(),due=String(fd.get('due')),category=String(fd.get('category')),teaser=String(fd.get('teaser')||'').trim();if(!title||due>e.date||!CATEGORIES.some(c=>c.id===category)||teaser.length>90){toast('Titel, Terminart, Kurzinfo und Antwortfrist prüfen.');return;}if(title===e.title&&place===e.place&&description===e.description&&due===e.due&&category===categoryFor(e).id&&teaser===(e.teaser||'')){toast('Keine Änderungen vorhanden.');return;}e.title=title;e.place=place;e.description=description;e.due=due;e.category=category;e.teaser=teaser;e.history.unshift(`Details geändert von ${person(activeId).name} (${new Date().toLocaleDateString('de-DE')})`);notifyAll(e,'Termindetails geändert',`Für „${e.title}“ wurden Details geändert. Bitte prüfe die Einladung. (Demo-Mitteilung)`);save();openModal('detail',e.id);render();toast('Termindetails aktualisiert.');return;}if(form.id==='reschedule-form'){const e=data.events.find(e=>e.id===form.dataset.id);if(e&&e.host===activeId)rescheduleEvent(e,String(fd.get('date')),String(fd.get('time')),String(fd.get('due')));return;}}
-function handlerChange(ev){const t=ev.target;if(t.dataset.action==='companion'){const e=data.events.find(e=>e.id===t.dataset.event),p=t.dataset.person;if(!e||!e.responses[activeId]||e.responses[activeId].status!=='yes')return;const existing=new Set(e.responses[activeId].people||[activeId]);if(t.checked)existing.add(p);else existing.delete(p);existing.add(activeId);e.responses[activeId].people=[...existing];save();openModal('detail',e.id);render();toast('Mitreisende aktualisiert.');}}
-document.addEventListener('click',e=>{
- if(loginState==='ready') remoteClick(e);
-});
-document.addEventListener('submit',e=>{if(e.target.closest('form')){e.preventDefault();remoteSubmit(e);}});
-document.addEventListener('change',e=>{if(loginState==='ready')remoteChange(e);});
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&modal)closeModal()});
-if('serviceWorker' in navigator && (location.protocol==='https:' || ['localhost','127.0.0.1'].includes(location.hostname))) {
- navigator.serviceWorker.register('./sw.js').catch(()=>{});
-}
-bootRemote();
+function eventInvites(id){return data.event_invites.filter(i=>i.event_id===id).map(i=>i.person_id);}
+function responseFor(id,personId){const p=person(personId),e=data.events.find(x=>x.id===id);if(!e||!p.auth_user_id)return null;return data.rsvps.find(r=>r.event_id===id&&r.revision===e.revision&&r.responder_user_id===p.auth_user_id)||null;}
+function guestsFor(event_id,responder_user_id,revision){return data.rsvp_attendees.filter(a=>a.event_id===event_id&&a.responder_user_id===responder_user_id&&a.revision===revision).map(a=>a.person_id);}
+function guestsTotal(e){const ids=new Set();for(const r of data.rsvps.filter(r=>r.event_id===e.id&&r.revision===e.revision&&r.status==='yes'))for(const p of guestsFor(e.id,r.responder_user_id,r.revision))ids.add(p);return ids.size;}
+function pendingEvents(){const own=me();if(!own)return [];return data.events.filter(e=>e.status==='active'&&e.event_date>=localDate()&&eventInvites(e.id).includes(own.id)&&!responseFor(e.id,own.id)).sort((a,b)=>(a.event_date+a.event_time).localeCompare(b.event_date+b.event_time));}
+function upcomingEvents(){return data.events.filter(e=>e.event_date>=localDate()&&e.status==='active').sort((a,b)=>(a.event_date+a.event_time).localeCompare(b.event_date+b.event_time));}
+function unread(){return data.notifications.filter(n=>!n.read_at);}
+async function fetchAvatars(){await Promise.all(data.people.filter(p=>p.avatar_path).map(async p=>{const c=avatarCache.get(p.id);if(c?.path===p.avatar_path&&c?.until>Date.now())return;try{const url=await API.avatarUrl(p.avatar_path);avatarCache.set(p.id,{url,path:p.avatar_path,until:Date.now()+45*60*1000});}catch(err){console.warn('Profilbild nicht verfügbar:',err);}}));}
+async function fetchData(){const oldIds=new Set(data.notifications.map(n=>n.id));const oldReady=mode==='ready';data=await API.readAll();peopleById=new Map(data.people.map(p=>[p.id,p]));accountsByUser=new Map(data.people.filter(p=>p.auth_user_id).map(p=>[p.auth_user_id,p]));if(!me()){mode='unlinked';render();return;}await fetchAvatars();mode='ready';render();if(oldReady)await notifyWhileOpen(data.notifications.filter(n=>!oldIds.has(n.id)));else await notifyWhileOpen(data.notifications.filter(n=>Date.now()-new Date(n.created_at).getTime()<120000));}
+function scheduleRefresh(){clearTimeout(refreshTimeout);refreshTimeout=setTimeout(()=>{if(!loadingAction&&user)fetchData().catch(e=>{console.warn('Aktualisierung fehlgeschlagen',e);});},430);}
+async function boot(){mode='loading';render();try{await API.connect();user=await API.getUser();if(!user){mode='login';render();return;}await fetchData();unsubscribe?.();unsubscribe=API.subscribe(scheduleRefresh);setInterval(()=>{if(user&&document.visibilityState==='visible')scheduleRefresh();},45000);window.addEventListener('focus',scheduleRefresh);await openDeeplink();}catch(e){console.error(e);lastError=e.message||'Verbindungsfehler';mode='error';render();}}
+async function work(op,success,after){if(loadingAction)return;loadingAction=true;try{const result=await op();if(user)await fetchData();if(after)await after(result);if(success)toast(success);return result;}catch(err){console.error(err);toast('Nicht gespeichert: '+(err?.message||'Unbekannter Fehler'));}finally{loadingAction=false;}}
+async function openDeeplink(){const params=new URLSearchParams(location.search),ev=params.get('event'),p=params.get('person');if(ev&&data.events.some(e=>e.id===ev))showModal('event',ev);else if(p&&peopleById.has(p))showModal('person',p);if(ev||p)history.replaceState(null,'',location.pathname);}
 
-/* ==============================================================
-   Online-Modus 0.7: echte Anmeldung und Datenbankabgleich
-   ============================================================= */
-function loginScreen(){
- const title=loginState==='loading'?'Verbindung wird aufgebaut …':
-   loginState==='unlinked'?'Dein Konto ist noch nicht freigeschaltet':
-   loginState==='error'?'Verbindung nicht verfügbar':'Willkommen bei Familienzeit';
- const subtitle=loginState==='unlinked'?'Du bist angemeldet, aber dein Konto muss noch einer der sieben Personen zugeordnet werden. Bitte den App-Verwalter informieren.':
-   loginState==='error'?'Die Anmeldung konnte nicht geladen werden. Prüfe Internetverbindung und Browser und versuche es erneut.':
-   'Melde dich mit deinem persönlichen Konto an. Danach erkennt die App dich automatisch.';
- let body='';
- if(loginState==='login') body=`<form id="login-form" class="auth-form"><label class="field"><span>E-Mail-Adresse</span><input type="email" name="email" class="input" autocomplete="email" required placeholder="name@beispiel.de"></label><label class="field"><span>Passwort</span><input type="password" name="password" class="input" autocomplete="current-password" required placeholder="Dein Passwort"></label><button class="solid-btn" type="submit">${icon('check',22)} Anmelden</button><button class="outline-btn" type="button" data-action="magic-link">Anmeldelink per E-Mail senden</button><p class="auth-note">Einladungslink oder Passwort funktionieren erst, nachdem dein Familienkonto eingerichtet wurde.</p></form>`;
- if(loginState==='unlinked')body=`<p class="auth-note">Angemeldet als <b>${safe(authUser?.email||'Unbekannt')}</b></p><button class="outline-btn" data-action="logout">Abmelden</button>`;
- if(loginState==='error')body='<button class="solid-btn" data-action="retry-connect">Erneut versuchen</button>';
- return `<div class="app-shell auth-shell"><header class="app-header"><div class="brand"><div class="brand-mark">${icon('heart',28)}</div><div class="brand-name">Familienzeit</div></div></header><main class="auth-card glass"><div class="auth-icon">${icon(loginState==='loading'?'clock':loginState==='unlinked'?'info':'heart',35)}</div><h1>${safe(title)}</h1><p>${safe(subtitle)}</p>${body}</main><p class="auth-footer">Privater Familienkalender · 7 persönliche Konten</p></div>`;
+function layout(){
+ const own=me(),newCount=unread().length;
+ return `<div class="app-shell"><header class="topbar"><div class="brand"><div class="brand-symbol">${icon('heart',25)}</div><div><strong>Familienzeit</strong><small>Zusammen ist schöner</small></div></div><div class="header-tools"><button class="icon-btn ${newCount?'has-unread':''}" data-action="notifications" aria-label="Mitteilungen anzeigen">${icon('bell',25)}${newCount?`<i>${newCount>9?'9+':newCount}</i>`:''}</button><button class="avatar-trigger" data-action="account" aria-label="Mein Konto">${avatar(own)}</button></div></header><main>${page==='home'?homeView():page==='calendar'?calendarView():familyView()}</main></div><nav class="bottom-nav" aria-label="Hauptnavigation"><button class="nav-item ${page==='home'?'active':''}" data-action="page" data-page="home">${icon('home',26)}<span>Start</span></button><button class="nav-item ${page==='calendar'?'active':''}" data-action="page" data-page="calendar">${icon('calendar',26)}<span>Kalender</span></button><button class="nav-item create" data-action="new-event">${icon('plus',27)}<span>Termin</span></button><button class="nav-item ${page==='family'?'active':''}" data-action="page" data-page="family">${icon('users',26)}<span>Familie</span></button></nav>`;
 }
-function mapRows(rows){
-  personIdByLocal={};localIdByPerson={};userIdByLocal={};localIdByUser={};
-  for(const p of rows){const l=PEOPLE.find(x=>x.name.toLocaleLowerCase('de-DE')===p.display_name.toLocaleLowerCase('de-DE'))?.id;
-    if(!l)continue;
-    personIdByLocal[l]=p.id;localIdByPerson[p.id]=l;
-    if(p.auth_user_id){userIdByLocal[l]=p.auth_user_id;localIdByUser[p.auth_user_id]=l;}
-  }
+function authView(){
+ const busy=mode==='loading';const unlinked=mode==='unlinked';
+ const label=mode==='error'?'Verbindung unterbrochen':unlinked?'Noch keine Freischaltung':busy?'Familienzeit lädt …':'Schön, dass du da bist!';
+ return `<div class="app-shell"><header class="topbar"><div class="brand"><div class="brand-symbol">${icon('heart',25)}</div><div><strong>Familienzeit</strong><small>Zusammen ist schöner</small></div></div></header><main class="auth-page"><div class="auth-art">${icon('users',55)}<span class="auth-spark s1">${icon('sparkle',24)}</span><span class="auth-spark s2">${icon('heart',19)}</span></div><section class="auth-panel glass"><p class="eyebrow">UNSER FAMILIENKALENDER</p><h1>${safe(label)}</h1><p class="auth-desc">${unlinked?'Dein Konto ist angemeldet, aber noch keiner Person zugeordnet. Bitte den Verwalter der Familien-App kontaktieren.':busy?'Die Verbindung zu eurem Familienkalender wird aufgebaut.':mode==='error'?safe(lastError):'Hier werden aus Nachrichten echte Verabredungen. Melde dich einmal an – danach bleibst du normalerweise angemeldet.'}</p>
+ ${mode==='login'?`<form id="login-form" class="stack" autocomplete="on"><label class="field">E-Mail-Adresse<input class="input" type="email" name="email" autocomplete="username" placeholder="Deine E-Mail-Adresse" required></label><label class="field">Passwort<input class="input" type="password" name="password" autocomplete="current-password" placeholder="Dein Passwort" required></label><button class="btn primary wide" type="submit">Anmelden ${icon('arrow',20)}</button><div class="auth-tip">${icon('shield',18)} Deine Zugangsdaten wurden dir beim Einrichten deines Familienkontos vergeben. Nach der ersten Anmeldung erfolgt die Erkennung automatisch.</div></form>`:''}
+ ${mode==='unlinked'?`<form id="claim-form" class="stack"><div class="auth-tip">${icon('info',20)} Angemeldet als ${safe(user?.email||'Unbekannt')}. Dein Familienverwalter gibt dir einen einmaligen Einladungscode.</div><label class="field">Einladungscode<input class="input" name="code" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Code hier einfügen" required></label><button class="btn primary wide" type="submit">${icon('check',19)} Familienprofil aktivieren</button><button class="btn secondary wide" type="button" data-action="logout">Abmelden</button></form>`:''}
+ ${mode==='error'?`<button class="btn primary wide" data-action="retry">Erneut verbinden</button>`:''}</section></main></div>`;
 }
-function assembleData(rows){
-  const commentsByEvent={},alternativesByEvent={},historyByEvent={},responsesByEvent={},attendeesByKey={};
-  for(const a of rows.rsvp_attendees){const key=[a.event_id,a.responder_user_id,a.revision].join('|');(attendeesByKey[key]??=[]).push(localIdByPerson[a.person_id]);}
-  for(const r of rows.rsvps){const e=rows.events.find(e=>e.id===r.event_id);if(!e||r.revision!==e.revision)continue;
-    const who=localIdByUser[r.responder_user_id];if(!who)continue;
-    (responsesByEvent[r.event_id]??={})[who]={status:r.status,people:(attendeesByKey[[r.event_id,r.responder_user_id,r.revision].join('|')]||[]).filter(Boolean)};
-  }
-  for(const c of rows.comments)(commentsByEvent[c.event_id]??=[]).push({id:c.id,author:localIdByUser[c.author_user_id]||'unbekannt',text:c.body,created:c.created_at});
-  for(const a of rows.alternatives)(alternativesByEvent[a.event_id]??=[]).push({id:a.id,author:localIdByUser[a.author_user_id]||'unbekannt',date:a.proposed_date,time:String(a.proposed_time).slice(0,5),created:a.created_at});
-  for(const h of rows.event_changes)(historyByEvent[h.event_id]??=[]).push(`${({rescheduled:'Verschoben',updated:'Details geändert',cancelled:'Abgesagt'})[h.change_type]||'Geändert'} · ${new Date(h.created_at).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'})}`);
-  const inviteMap={};for(const i of rows.event_invites)(inviteMap[i.event_id]??=[]).push(localIdByPerson[i.person_id]);
-  const events=rows.events.map(e=>({
-    id:e.id,title:e.title,date:e.event_date,time:String(e.event_time).slice(0,5),host:localIdByUser[e.creator_user_id]||'unbekannt',place:e.location_text||'',mapsUrl:e.maps_url||'',description:e.description||'',due:e.response_deadline||e.event_date,category:e.kind,teaser:e.teaser||'',invitees:(inviteMap[e.id]||[]).filter(Boolean),responses:responsesByEvent[e.id]||{},comments:commentsByEvent[e.id]||[],proposals:alternativesByEvent[e.id]||[],history:historyByEvent[e.id]||[],nudges:{},cancelled:e.status==='cancelled',created:e.created_at,revision:e.revision
-  }));
-  const types={invited:'Neue Einladung',rescheduled:'Termin verschoben',updated:'Termin geändert',cancelled:'Termin abgesagt',nudge:'Persönlicher Stupser'};
-  const notifications=rows.notifications.map(n=>({id:n.id,to:localIdByUser[n.recipient_user_id]||activeId,title:types[n.kind]||'Mitteilung',body:n.message,ev:n.event_id,created:n.created_at,read:!!n.read_at}));
-  return {version:2,events,notifications};
+function render(){const app=$('#app');app.innerHTML=mode==='ready'?layout():authView();if(modal&&mode==='ready')renderModal();else if(mode!=='ready')$('#modal-root').innerHTML='';}
+function greeting(){const h=new Date().getHours();return h<10?'Guten Morgen':h<18?'Hallo':'Guten Abend';}
+function homeView(){
+ const own=me(),up=upcomingEvents(),pending=pendingEvents(),births=upcomingBirthdays().slice(0,4);
+ return `<section class="hero"><div class="hero-pattern">${icon('heart',100)}</div><p class="hero-kicker">DEIN PLATZ IN DER FAMILIE</p><h1>Zeit <em>füreinander.</em></h1><p>${greeting()}, ${safe(own.display_name)}! Was steht bei euch an?</p><div class="hero-bottom"><span>${icon('users',18)} ${data.people.length} Familienmenschen</span><span>${icon('calendar',18)} ${up.length} kommende Termine</span></div></section>
+ <button type="button" class="open-callout" data-action="pending" aria-label="Offene Rückmeldungen anzeigen"><span class="callout-medal">${icon(pending.length?'bell':'check',27)}</span><span class="callout-text"><strong>${pending.length?`${pending.length} ${pending.length===1?'Rückmeldung':'Rückmeldungen'} offen`:'Alles beantwortet!'}</strong><small>${pending.length?'Hier wartet eine Einladung auf deine Antwort.':'Du bist bei deinen Einladungen auf dem Laufenden.'}</small></span><span class="round-arrow">${icon('chevron',22)}</span></button>
+ <div class="section-title"><div><p class="eyebrow">GUTE GRÜNDE ZUM FEIERN</p><h2>Geburtstage</h2></div><button class="text-action" data-action="page" data-page="calendar">Zum Kalender ${icon('chevron',16)}</button></div>
+ ${births.length?`<div class="birthday-strip">${births.map(p=>birthdayMini(p)).join('')}</div>`:`<button class="birthday-empty" data-action="page" data-page="family">${icon('gift',29)} <span><b>Geburtstage ergänzen</b><small>Die ersten Geburtstage kannst du bei „Familie“ eintragen.</small></span>${icon('chevron',20)}</button>`}
+ <div class="section-title appointments"><div><p class="eyebrow">DAS NÄCHSTE GEMEINSAM</p><h2>Unsere Termine</h2></div><button class="text-action" data-action="new-event">${icon('plus',17)} Neu</button></div>
+ <div class="event-list">${up.length?up.map(eventCard).join(''):`<div class="empty-state">${icon('calendar',34)}<h3>Noch nichts geplant</h3><p>Der nächste gemeinsame Termin wartet auf euch.</p><button class="btn primary" data-action="new-event">Termin erstellen</button></div>`}</div>`;
 }
-async function bootRemote(){
- loginState='loading';render();
- try{
-  await connect();
-  const u=await auth.getUser();
-  if(!u){loginState='login';render();return;}
-  authUser=u;
-  await refreshRemote(true);
-  if(!unwatch){try{unwatch=watchChanges(()=>{if(!changing)queueRemoteRefresh();});}catch(e){console.warn('Realtime noch nicht aktiv',e);}}
-  if(!refreshTimer){refreshTimer=setInterval(()=>{if(document.visibilityState==='visible'&&!changing)queueRemoteRefresh();},45000);}
- }catch(e){console.error(e);loginState='error';render();}
+function birthdayMini(p){const b=p.next;return `<button class="birthday-mini" data-action="person" data-id="${p.id}" aria-label="Geburtstag von ${safe(p.display_name)} ansehen"><span class="birthday-photo">${avatar(p,'lg')}<i>${icon('gift',15)}</i></span><span class="birthday-copy"><strong>${safe(p.display_name)}</strong><small>${fmt(b.date,{day:'numeric',month:'short'})}</small><span class="tiny-pill">${b.days===0?'Heute!':b.days===1?'Morgen':`In ${b.days} Tagen`}</span></span></button>`;}
+function themeClass(e){return `category-${/^(coffee|birthday|dining|gathering|party|trip|holiday|other)$/.test(e.kind)?e.kind:'other'} cover-${/^(soft|illustrated|warm)$/.test(e.cover_style)?e.cover_style:'illustrated'}`;}
+function responseLabel(r){return !r?'Antwort offen':r.status==='yes'?'Zugesagt':r.status==='no'?'Abgesagt':'Vielleicht';}
+function eventCard(e){
+ const r=responseFor(e.id,me().id),isHost=e.creator_user_id===user.id;
+ return `<button class="event-card ${themeClass(e)}" data-action="event" data-id="${e.id}"><span class="card-glow" aria-hidden="true"></span><span class="card-watermark" aria-hidden="true">${icon(typeIcon(e.kind),94)}</span><div class="event-card-main"><div class="date-tile"><small>${monthShort(e.event_date)}</small><b>${+e.event_date.slice(8,10)}</b><span>${weekday(e.event_date)}</span></div><div class="event-copy"><span class="category-badge">${icon(typeIcon(e.kind),17)} ${safe(typeName(e.kind))}</span><strong>${safe(e.title)}</strong><span class="event-when">${icon('clock',17)} ${safe(String(e.event_time).slice(0,5))} Uhr</span><span class="event-by">${avatar(accountsByUser.get(e.creator_user_id)||{display_name:'?',id:'guest'},'xs')} ${safe(accountsByUser.get(e.creator_user_id)?.display_name||'Familie')} lädt ein</span></div></div>
+ ${e.teaser?`<p class="teaser">${safe(e.teaser)}</p>`:''}<div class="event-card-bottom"><span class="rsvp-chip ${!r?'open':r.status}">${icon(!r?'clock':r.status==='yes'?'check':r.status==='no'?'x':'info',16)} ${safe(isHost&&!r?'Dein Termin':responseLabel(r))}</span><span class="event-count">${icon('users',16)} ${guestsTotal(e)} Personen</span><span class="round-arrow">${icon('chevron',20)}</span></div></button>`;
 }
-let queuedRefresh=0;
-function queueRemoteRefresh(){clearTimeout(queuedRefresh);queuedRefresh=setTimeout(()=>refreshRemote(false).catch(console.error),400);}
-async function refreshRemote(boot=false){
- const rows=await fetchAll();
- mapRows(rows.people);
- const local=localIdByUser[authUser.id];
- if(!local){loginState='unlinked';render();return;}
- activeId=local;
- data=assembleData(rows);
- loginState='ready';
- if(!modal || modal==='detail' || modal==='notifications' || boot)render();
+function calendarView(){
+ const y=month.getFullYear(),m=month.getMonth()+1,first=(new Date(y,m-1,1).getDay()+6)%7,last=new Date(y,m,0).getDate();let cells='';
+ for(let i=0;i<first;i++)cells+='<span class="date-gap"></span>';
+ for(let d=1;d<=last;d++){
+   const date=iso(y,m,d),hasEvent=data.events.some(e=>e.event_date===date&&e.status!=='cancelled'),birthday=data.people.some(p=>birthdayInYear(p,y)===date);
+   cells+=`<button class="calendar-day ${date===selectedDay?'selected':''} ${date===localDate()?'today':''}" data-action="calendar-day" data-date="${date}" aria-label="${safe(fmt(date))}${birthday?', Geburtstag':''}${hasEvent?', Termin':''}">${d}<span class="day-dots">${birthday?'<i class="birth-dot"></i>':''}${hasEvent?'<i class="event-dot"></i>':''}</span></button>`;
+ }
+ const date=selectedDay,dayEvents=data.events.filter(e=>e.event_date===date).sort((a,b)=>String(a.event_time).localeCompare(String(b.event_time))),birthdays=data.people.filter(p=>birthdayInYear(p,+date.slice(0,4))===date);
+ return `<div class="page-head"><p class="eyebrow">ALLES AUF EINEN BLICK</p><h1>Unser Kalender</h1><p>Alle Familientermine und Geburtstage zusammen.</p></div><section class="calendar-panel"><div class="month-heading"><h2>${safe(month.toLocaleDateString('de-DE',{month:'long',year:'numeric'}))}</h2><div class="month-controls"><button data-action="month-prev" aria-label="Vorheriger Monat">${icon('left',22)}</button><button data-action="month-next" aria-label="Nächster Monat">${icon('chevron',22)}</button></div></div><div class="weekday-grid">${['Mo','Di','Mi','Do','Fr','Sa','So'].map(x=>`<span>${x}</span>`).join('')}</div><div class="month-grid">${cells}</div><div class="calendar-legend"><span><i class="birth-dot"></i> Geburtstag</span><span><i class="event-dot"></i> Termin</span></div></section>
+ <div class="section-title"><div><p class="eyebrow">${safe(fmt(date,{weekday:'long'}).toUpperCase())}</p><h2>${safe(fmt(date,{day:'numeric',month:'long'}))}</h2></div></div>
+ <div class="day-list">${birthdays.map(p=>`<button class="birthday-day-card" data-action="person" data-id="${p.id}">${avatar(p,'md')}<span><strong>${safe(p.display_name)} hat Geburtstag!</strong><small>Tippen, um eine Feier zu planen</small></span>${icon('gift',25)}</button>`).join('')}${dayEvents.map(e=>eventCard(e)).join('')}${!dayEvents.length&&!birthdays.length?'<div class="empty-state compact">Noch nichts an diesem Tag geplant.</div>':''}</div>`;
 }
-async function actionRun(work,success){
- if(changing)return;
- changing=true;
- try{await work();if(loginState==='ready'&&authUser)await refreshRemote();if(success)toast(success);}
- catch(e){console.error(e);toast('Nicht gespeichert: '+String(e.message||e));}
- finally{changing=false;}
+function familyView(){
+ const people=[...data.people].sort((a,b)=>PEOPLE.indexOf(a.display_name)-PEOPLE.indexOf(b.display_name));
+ return `<div class="page-head"><p class="eyebrow">UNSERE MENSCHEN</p><h1>Die Familie</h1><p>Hier sind alle zehn Personen. Jede sieht dieselben gemeinsamen Termine.</p></div><div class="family-panel"><div class="family-intro">${icon('heart',24)} <b>${data.people.length} Menschen, ein Kalender</b></div>${people.map(p=>{
+ const own=p.id===me().id,canEdit=canManage(p.id);
+ return `<button class="family-row" data-action="person" data-id="${p.id}">${avatar(p,'lg')}<span class="family-person"><strong>${safe(p.display_name)}${own?' <em>Du</em>':''}</strong><small>${p.birth_date?`${icon('gift',15)} ${fmt(p.birth_date,{day:'numeric',month:'long'})}`:canEdit?'Geburtstag und Foto ergänzen':p.can_login?'App-Mitglied':'Familienmitglied'}</small></span><span class="family-right">${canEdit?icon('edit',17):icon('chevron',20)}</span></button>${me().can_invite&&p.can_login&&!p.auth_user_id?`<div class="invite-action-row"><button class="btn secondary small" data-action="invite-code" data-id="${p.id}">${icon('plus',16)} Zugangscode für ${safe(p.display_name)} erstellen</button></div>`:''}`;
+ }).join('')}</div><p class="family-note">${icon('shield',17)} Profilbilder bleiben privat. Nur die jeweilige Person beziehungsweise berechtigte Bezugspersonen können Daten ändern.</p>`;
 }
-function remoteClick(ev){
- const t=ev.target.closest('[data-action]');if(!t)return;
- const a=t.dataset.action,id=t.dataset.id;
- if(a==='logout'){actionRun(async()=>{unwatch?.();unwatch=null;await auth.logout();authUser=null;loginState='login';data={events:[],notifications:[]};modal=null;overlay.innerHTML='';document.body.style.overflow='';render();});return;}
- if(a==='retry-connect'){bootRemote();return;}
- if(a==='magic-link'){
-  const email=document.querySelector('input[name="email"]')?.value?.trim();
-  if(!email){toast('Bitte zuerst die E-Mail-Adresse eingeben.');return;}
-  actionRun(()=>auth.magic(email),'Anmeldelink angefordert. Bitte dein E-Mail-Postfach prüfen.');return;
- }
- if(a==='rsvp'){
-  const e=data.events.find(e=>e.id===id);if(!e)return;
-  const previous=e.responses[activeId]?.people||[];
-  const selected=t.dataset.response==='yes'?Array.from(new Set([activeId,...previous])).map(x=>personIdByLocal[x]).filter(Boolean):[];
-  actionRun(()=>respond(id,t.dataset.response,selected),'Deine Antwort wurde gespeichert.');return;
- }
- if(a==='nudge'){
-  const personId=personIdByLocal[t.dataset.to];if(!personId)return;
-  actionRun(()=>nudge(id,personId),'Stupser in der App gesendet.');return;
- }
- if(a==='cancel'){
-  const e=data.events.find(e=>e.id===id);if(!e||e.host!==activeId)return;
-  if(!confirm(`„${e.title}“ wirklich absagen? Alle Eingeladenen erhalten eine Mitteilung in der App.`))return;
-  actionRun(async()=>{await editEvent(id,{status:'cancelled'});modal=null;overlay.innerHTML='';document.body.style.overflow='';},'Termin abgesagt.');return;
- }
- if(a==='accept-proposal'){
-  const e=data.events.find(e=>e.id===id),proposal=e?.proposals?.[Number(t.dataset.index)];
-  if(!e||e.host!==activeId||!proposal)return;
-  if(e.due>proposal.date){toast('Antwortfrist liegt nach dem vorgeschlagenen Datum. Termin bitte manuell verschieben.');return;}
-  if(!confirm('Alternativtermin übernehmen? Alle müssen erneut antworten.'))return;
-  actionRun(()=>editEvent(e.id,{event_date:proposal.date,event_time:proposal.time}), 'Neues Datum gespeichert, alte Zusagen sind nicht mehr gültig.');return;
- }
- if(a==='notifications'){
-  const unread=data.notifications.filter(n=>!n.read).map(n=>n.id);
-  handlerClick(ev);
-  if(unread.length)actionRun(()=>markRead(unread));
-  return;
- }
- if(['switch','reset'].includes(a))return;
- handlerClick(ev);
+
+function modalFrame(title,body,eyebrow='FAMILIENZEIT'){
+ return `<div class="overlay" data-action="close-backdrop"><div class="sheet" role="dialog" aria-modal="true" aria-label="${safe(title)}"><div class="sheet-grab"></div><div class="sheet-heading"><div><small>${safe(eyebrow)}</small><h2>${safe(title)}</h2></div><button class="sheet-close" type="button" data-action="close" aria-label="Schließen">${icon('x',24)}</button></div><div class="sheet-content">${body}</div></div></div>`;
 }
-async function remoteSubmit(ev){
- const form=ev.target,fd=new FormData(form);
- if(form.id==='login-form'){
-   await actionRun(async()=>{await auth.login(String(fd.get('email')).trim(),String(fd.get('password')));authUser=await auth.getUser();if(!authUser)throw Error('Anmeldung fehlgeschlagen');await refreshRemote(true);},'Angemeldet.');
-   return;
- }
- if(loginState!=='ready')return;
- if(form.id==='create-form'){
-  const date=String(fd.get('date')),deadline=String(fd.get('due'));
-  if(deadline>date){toast('Antwortfrist darf nicht nach dem Termin liegen.');return;}
-  const selected=[...new Set([...Array.from(form.querySelectorAll('input[name="invitees"]:checked')).map(i=>i.value),activeId])];
-  const values={p_title:String(fd.get('title')).trim(),p_kind:String(fd.get('category')),p_teaser:String(fd.get('teaser')||'').trim(),p_event_date:date,p_event_time:String(fd.get('time')),p_deadline:deadline,p_location:String(fd.get('place')||'').trim(),p_description:String(fd.get('description')||'').trim(),p_invitees:selected.map(x=>personIdByLocal[x]).filter(Boolean),p_maps_url:''};
-  if(!values.p_title||values.p_teaser.length>90){toast('Titel und Kurzinfo prüfen.');return;}
-  await actionRun(async()=>{const created=await createEvent(values);await refreshRemote();openModal('detail',created);},'Termin veröffentlicht.');return;
- }
- if(form.dataset.form==='comment'){
-  const body=String(fd.get('text')||'').trim(),id=form.dataset.id;
-  if(!body)return;
-  await actionRun(async()=>{await addComment(id,body,authUser.id);await refreshRemote();openModal('detail',id);},'Kommentar gespeichert.');return;
- }
- if(form.id==='propose-form'){
-  const id=form.dataset.id,date=String(fd.get('date')),time=String(fd.get('time'));
-  const e=data.events.find(e=>e.id===id);
-  if(e?.date===date&&e.time===time){toast('Bitte eine echte Alternative vorschlagen.');return;}
-  await actionRun(async()=>{await addAlternative(id,date,time,authUser.id);await refreshRemote();openModal('detail',id);},'Alternativtermin vorgeschlagen.');return;
- }
- if(form.id==='edit-form'){
-  const id=form.dataset.id,e=data.events.find(e=>e.id===id);
-  if(!e||e.host!==activeId||e.cancelled)return;
-  const deadline=String(fd.get('due')),teaser=String(fd.get('teaser')||'').trim();
-  if(deadline>e.date||teaser.length>90){toast('Bitte Antwortfrist und Kurzinfo prüfen.');return;}
-  await actionRun(async()=>{await editEvent(id,{title:String(fd.get('title')).trim(),kind:String(fd.get('category')),teaser,location_text:String(fd.get('place')||'').trim(),description:String(fd.get('description')||'').trim(),response_deadline:deadline});await refreshRemote();openModal('detail',id);},'Änderungen gespeichert.');return;
- }
- if(form.id==='reschedule-form'){
-  const id=form.dataset.id,e=data.events.find(e=>e.id===id),date=String(fd.get('date')),time=String(fd.get('time')),due=String(fd.get('due'));
-  if(!e||e.host!==activeId||e.cancelled)return;
-  if(due>date){toast('Antwortfrist liegt nach dem neuen Termin.');return;}
-  if(e.date===date&&e.time===time){toast('Datum und Uhrzeit sind unverändert.');return;}
-  await actionRun(async()=>{await editEvent(id,{event_date:date,event_time:time,response_deadline:due});await refreshRemote();openModal('detail',id);},'Termin verschoben: Erneute Zusagen erforderlich.');return;
- }
+function showModal(type,id=null){modal={type,id};renderModal();document.body.classList.add('modal-open');}
+function closeModal(){modal=null;$('#modal-root').innerHTML='';document.body.classList.remove('modal-open');}
+function renderModal(){if(!modal)return;let title='',body='',eyebrow='FAMILIENZEIT';const {type,id}=modal;
+ if(type==='event'){const e=data.events.find(e=>e.id===id);if(!e){closeModal();return;}title='Einladung';eyebrow='TERMINDETAILS';body=eventDetail(e);}
+ else if(type==='new'){title=birthdayDraft?'Geburtstag planen':'Neuen Termin planen';eyebrow='WIR SEHEN UNS';body=newEventForm();}
+ else if(type==='edit'){title='Termin bearbeiten';body=editEventForm(data.events.find(e=>e.id===id));}
+ else if(type==='move'){title='Termin verschieben';body=moveEventForm(data.events.find(e=>e.id===id));}
+ else if(type==='alternative'){title='Alternativtermin';body=alternativeForm(data.events.find(e=>e.id===id));}
+ else if(type==='person'){const p=person(id);title=p.display_name;eyebrow='FAMILIENPROFIL';body=personDetail(p);}
+ else if(type==='account'){title='Mein Konto';body=accountView();}
+ else if(type==='notifications'){title='Mitteilungen';eyebrow='NEUES AUS DER FAMILIE';body=notificationsView();}
+ else if(type==='pending'){title='Noch zu beantworten';eyebrow='DEINE OFFENEN EINLADUNGEN';body=pendingView();}
+ else if(type==='invite'){const p=person(id);title='Einladung für '+p.display_name;eyebrow='EINFACHER ERSTZUGANG';body=`<p class="form-help">Gib ${safe(p.display_name)} diesen einmaligen Code. Er bleibt 14 Tage gültig und verknüpft das Konto automatisch mit dem richtigen Familienprofil.</p><div class="invitation-code">${safe(modal.code||'')}</div><button class="btn primary wide" data-action="copy-invite">${icon('check',19)} Code kopieren</button><p class="form-help notice">Wichtig: ${safe(p.display_name)} benötigt vorher ein persönliches Anmeldekonto mit E-Mail und Passwort. Sobald der Einladungs-E-Mail-Versand eingerichtet ist, geht auch das automatisch.</p>`;}
+ $('#modal-root').innerHTML=modalFrame(title,body,eyebrow);
 }
-function remoteChange(ev){
- const t=ev.target;if(t.dataset.action!=='companion')return;
- const e=data.events.find(e=>e.id===t.dataset.event);
- if(!e||e.responses[activeId]?.status!=='yes')return;
- const selected=new Set(e.responses[activeId].people||[activeId]);
- if(t.checked)selected.add(t.dataset.person);else selected.delete(t.dataset.person);
- selected.add(activeId);
- actionRun(async()=>{await respond(e.id,'yes',[...selected].map(p=>personIdByLocal[p]).filter(Boolean));await refreshRemote();openModal('detail',e.id);},'Teilnehmer aktualisiert.');
+function backgroundPicker(selected='illustrated',category='gathering'){
+ return `<fieldset class="field-group background-field"><legend>Hintergrund auswählen</legend><p class="form-help">Drei dezente Stile – das Motiv passt sich dem Anlass an.</p><div class="cover-options">${VARIANTS.map(v=>`<label class="cover-radio"><input type="radio" name="cover_style" value="${v.id}" ${selected===v.id?'checked':''}><span class="cover-preview category-${category} cover-${v.id}"><span class="preview-art">${icon(typeIcon(category),34)}</span><b>${safe(v.name)}</b></span></label>`).join('')}</div></fieldset>`;
 }
-// Anmeldung ist ein separater, geschützter Bereich; die UI sieht dort keine Familiendaten.
-document.addEventListener('click',e=>{
- if(loginState!=='ready'){
-  const t=e.target.closest('[data-action]');if(!t)return;
-  if(t.dataset.action==='retry-connect'){bootRemote();return;}
-  if(t.dataset.action==='logout'){actionRun(async()=>{await auth.logout();authUser=null;loginState='login';render();});return;}
-  if(t.dataset.action==='magic-link'){
-    const email=document.querySelector('input[name="email"]')?.value?.trim();if(!email){toast('Bitte E-Mail-Adresse eingeben.');return;}
-    actionRun(()=>auth.magic(email),'Anmeldelink angefordert.');
-  }
+function categoryPicker(selected='gathering'){
+ return `<fieldset class="field-group"><legend>Was habt ihr vor?</legend><div class="category-grid">${CATEGORIES.map(c=>`<label class="category-radio"><input type="radio" name="kind" value="${c.id}" ${selected===c.id?'checked':''} required><span>${icon(c.icon,27)}<b>${safe(c.name)}</b></span></label>`).join('')}</div></fieldset>`;
+}
+function inviteePicker(selected){return `<div class="invite-grid">${data.people.map(p=>`<label class="invite-person"><input type="checkbox" name="invitees" value="${p.id}" ${selected.has(p.id)?'checked':''} ${p.id===me().id?'disabled':''}><span>${avatar(p,'sm')}<b>${safe(p.display_name)}</b>${p.id===me().id?'<small>Du</small>':''}</span></label>`).join('')}</div>`;}
+function newEventForm(){
+ const draft=birthdayDraft,personForBirthday=draft?person(draft.personId):null;
+ const d=new Date();d.setDate(d.getDate()+14);const defaultDate=draft?.date||iso(d.getFullYear(),d.getMonth()+1,d.getDate()),title=draft?`Geburtstag von ${personForBirthday.display_name}`:'',kind=draft?'birthday':'gathering';
+ const deadlineDefault=defaultDate<localDate()?localDate():localDate();
+ return `<form id="new-event-form" class="stack"><p class="form-help">Du erstellst eine Einladung für alle ausgewählten Personen. Du selbst bist automatisch dabei.</p>
+ ${categoryPicker(kind)}${backgroundPicker(draft?'warm':'illustrated',kind)}
+ <label class="field">Wie heißt euer Treffen?<input class="input" name="title" maxlength="120" placeholder="z. B. Familienfrühstück" value="${safe(title)}" required></label>
+ <div class="two-fields"><label class="field">Datum<input class="input" type="date" name="date" value="${defaultDate}" min="${localDate()}" required></label><label class="field">Uhrzeit<input class="input" type="time" name="time" value="15:00" required></label></div>
+ <label class="field">Einladungssatz <small>(optional)</small><input class="input" name="teaser" maxlength="90" placeholder="Ein kleiner Vorgeschmack …" value="${draft?'Wir freuen uns auf einen schönen Tag zusammen!':''}"></label>
+ <label class="field">Ort / Adresse<input class="input" name="location" maxlength="240" placeholder="z. B. bei uns zu Hause"></label>
+ <label class="field">Das solltest du wissen <small>(optional)</small><textarea class="input" name="description" maxlength="3000" rows="3" placeholder="Was sollen die anderen mitbringen?"></textarea></label>
+ <fieldset class="field-group"><legend>Wer ist eingeladen?</legend><p class="form-help">Alle zehn Personen können erscheinen, auch Kinder ohne eigenes Login. Die sieben App-Nutzer können selbst antworten.</p>${inviteePicker(new Set(data.people.map(p=>p.id)))}</fieldset>
+ <label class="field">Bitte antworten bis<input class="input" type="date" name="deadline" value="${deadlineDefault}" required></label>
+ <button class="btn primary wide" type="submit">${icon('check',19)} Einladung erstellen</button></form>`;
+}
+function eventDetail(e){
+ const host=accountsByUser.get(e.creator_user_id),own=me(),invited=eventInvites(e.id).includes(own.id),ownResponse=responseFor(e.id,own.id),hostSelf=e.creator_user_id===user.id;
+ const yes=data.rsvps.filter(r=>r.event_id===e.id&&r.revision===e.revision&&r.status==='yes'),confirmed=new Set(yes.flatMap(r=>guestsFor(e.id,r.responder_user_id,r.revision)));
+ const notes=data.comments.filter(c=>c.event_id===e.id);
+ const alternatives=data.alternatives.filter(a=>a.event_id===e.id);
+ const yourGuests=ownResponse?.status==='yes'?guestsFor(e.id,user.id,e.revision):[];
+ const missing=eventInvites(e.id).map(id=>person(id)).filter(p=>p.can_login&&p.auth_user_id&&!responseFor(e.id,p.id));
+ return `<div class="detail-banner ${themeClass(e)}"><span class="detail-banner-art">${icon(typeIcon(e.kind),94)}</span><p>${icon(typeIcon(e.kind),20)} ${safe(typeName(e.kind))}</p><h3>${safe(e.title)}</h3><span>${safe(fmt(e.event_date,{weekday:'long',day:'numeric',month:'long',year:'numeric'}))}</span></div>
+ ${e.status==='cancelled'?`<div class="cancelled-warning">${icon('x',23)} Dieser Termin wurde abgesagt.</div>`:''}
+ ${e.teaser?`<p class="detail-teaser">${safe(e.teaser)}</p>`:''}<div class="detail-facts">
+ <div>${icon('clock',21)} <span><b>${safe(String(e.event_time).slice(0,5))} Uhr</b> · ${safe(fmt(e.event_date))}</span></div>
+ <div>${icon('users',21)} <span>Eingeladen von <b>${safe(host?.display_name||'Familie')}</b></span></div>
+ ${e.location_text?`<div>${icon('map',21)} <span><b>${safe(e.location_text)}</b><p><a href="https://www.google.com/maps/search/?api=1&amp;query=${encodeURIComponent(e.location_text)}" target="_blank" rel="noopener noreferrer">Auf Google Maps ansehen</a></p></span></div>`:''}
+ ${e.description?`<div>${icon('info',21)} <span>${safe(e.description)}</span></div>`:''}
+ <div>${icon('calendar',21)} <span>Antwortfrist: <b>${safe(fmt(e.response_deadline||e.event_date))}</b></span></div></div>
+ ${e.status==='active'&&invited?`<section class="detail-panel"><h3>Deine Rückmeldung</h3><p class="form-help">${ownResponse?`Du hast „${responseLabel(ownResponse)}“ ausgewählt. Du kannst deine Antwort ändern.`:'Du hast noch nicht geantwortet. Was passt für dich?'}</p><div class="rsvp-actions"><button class="rsvp-btn yes ${ownResponse?.status==='yes'?'selected':''}" data-action="respond" data-id="${e.id}" data-response="yes">${icon('check',25)} Zusagen</button><button class="rsvp-btn maybe ${ownResponse?.status==='maybe'?'selected':''}" data-action="respond" data-id="${e.id}" data-response="maybe">${icon('info',25)} Vielleicht</button><button class="rsvp-btn no ${ownResponse?.status==='no'?'selected':''}" data-action="respond" data-id="${e.id}" data-response="no">${icon('x',25)} Absagen</button></div>
+ ${ownResponse?.status==='yes'?`<h4>Wer kommt mit?</h4><p class="form-help">Du bist automatisch dabei. Jede Person wird insgesamt nur einmal gezählt.</p><div class="companion-list">${data.people.filter(p=>p.id!==own.id).map(p=>`<label class="companion-person">${avatar(p,'sm')}<span>${safe(p.display_name)}</span><input type="checkbox" data-action="companion" data-event="${e.id}" data-person="${p.id}" ${yourGuests.includes(p.id)?'checked':''}></label>`).join('')}</div>`:''}</section>`:''}
+ <section class="detail-panel"><h3>${icon('users',21)} Dabei · ${confirmed.size} ${confirmed.size===1?'Person':'Personen'}</h3>${confirmed.size?`<div class="attendee-avatars">${[...confirmed].map(id=>`<span>${avatar(id,'sm')}${safe(person(id).display_name)}</span>`).join('')}</div>`:'<p class="form-help">Noch keine Zusagen.</p>'}
+ ${missing.length?`<p class="form-help"><b>Antwort offen:</b> ${missing.map(p=>safe(p.display_name)).join(', ')}</p>`:''}
+ ${hostSelf&&missing.length&&e.status==='active'?`<div class="nudge-list">${missing.map(p=>`<button class="btn secondary small" data-action="nudge" data-id="${e.id}" data-person="${p.id}">${icon('bell',16)} ${safe(p.display_name)} erinnern</button>`).join('')}</div>`:''}</section>
+ ${alternatives.length?`<section class="detail-panel"><h3>Andere Terminvorschläge</h3>${alternatives.map(a=>`<div class="alternative-row"><span><b>${safe(fmt(a.proposed_date))} · ${safe(String(a.proposed_time).slice(0,5))} Uhr</b><small>von ${safe(accountsByUser.get(a.author_user_id)?.display_name||'Familie')}</small></span>${hostSelf&&e.status==='active'?`<button class="btn secondary small" data-action="accept-alternative" data-id="${e.id}" data-alt="${a.id}">Übernehmen</button>`:''}</div>`).join('')}</section>`:''}
+ ${e.status==='active'?`<button class="btn secondary wide" data-action="alternative" data-id="${e.id}">${icon('calendar',19)} Alternativtermin vorschlagen</button>`:''}
+ ${hostSelf&&e.status==='active'?`<section class="detail-panel host-actions"><h3>Deinen Termin verwalten</h3><button class="btn secondary wide" data-action="edit-event" data-id="${e.id}">${icon('edit',20)} Einladung bearbeiten</button><div class="action-pair"><button class="btn secondary" data-action="move-event" data-id="${e.id}">${icon('calendar',18)} Verschieben</button><button class="btn danger" data-action="cancel-event" data-id="${e.id}">${icon('x',18)} Absagen</button></div><p class="form-help">Nach einer Verschiebung müssen alle erneut antworten.</p></section>`:''}
+ <section class="detail-panel"><h3>${icon('message',21)} Kommentare · ${notes.length}</h3>${notes.length?notes.map(c=>`<div class="comment-row">${avatar(accountsByUser.get(c.author_user_id)||{id:'',display_name:'?'},'sm')}<div><b>${safe(accountsByUser.get(c.author_user_id)?.display_name||'Familie')}</b><small>${new Date(c.created_at).toLocaleDateString('de-DE')}</small><p>${safe(c.body)}</p></div></div>`).join(''):'<p class="form-help">Noch keine Kommentare.</p>'}${e.status==='active'&&invited?`<form id="comment-form" data-id="${e.id}" class="stack"><label class="field">Nachricht an die Familie<textarea class="input" name="message" rows="2" maxlength="2000" placeholder="Schreibe etwas ..." required></textarea></label><button class="btn primary" type="submit">${icon('send',18)} Kommentar senden</button></form>`:''}</section>`;
+}
+function editEventForm(e){if(!e)return '';
+ return `<form id="edit-event-form" data-id="${e.id}" class="stack"><p class="form-help">Den Zeitpunkt änderst du über „Verschieben“. Alle werden über wichtige Änderungen informiert.</p>${categoryPicker(e.kind)}${backgroundPicker(e.cover_style,e.kind)}
+ <label class="field">Titel<input class="input" name="title" maxlength="120" required value="${safe(e.title)}"></label>
+ <label class="field">Einladungssatz<input class="input" name="teaser" maxlength="90" value="${safe(e.teaser)}"></label>
+ <label class="field">Ort / Adresse<input class="input" name="location" maxlength="240" value="${safe(e.location_text)}"></label>
+ <label class="field">Beschreibung<textarea class="input" rows="3" name="description" maxlength="3000">${safe(e.description)}</textarea></label>
+ <fieldset class="field-group"><legend>Wer ist eingeladen?</legend>${inviteePicker(new Set(eventInvites(e.id)))}</fieldset>
+ <label class="field">Antwortfrist<input type="date" class="input" name="deadline" value="${e.response_deadline||e.event_date}" required></label>
+ <button class="btn primary wide" type="submit">${icon('check',19)} Änderungen speichern</button></form>`;
+}
+function moveEventForm(e){if(!e)return '';return `<form id="move-event-form" data-id="${e.id}" class="stack"><p class="form-help">Bei einer Verschiebung bleiben frühere Zusagen im Verlauf erhalten, aber alle müssen erneut antworten.</p><div class="two-fields"><label class="field">Neues Datum<input class="input" type="date" name="date" value="${e.event_date}" min="${localDate()}" required></label><label class="field">Neue Uhrzeit<input class="input" type="time" name="time" value="${String(e.event_time).slice(0,5)}" required></label></div><label class="field">Neue Antwortfrist<input class="input" type="date" name="deadline" value="${e.response_deadline||localDate()}" required></label><button class="btn primary wide" type="submit">${icon('refresh',20)} Termin verschieben</button></form>`;}
+function alternativeForm(e){if(!e)return '';return `<form id="alternative-form" data-id="${e.id}" class="stack"><p class="form-help">Dein Vorschlag ändert noch nichts am eigentlichen Termin. Der Gastgeber entscheidet.</p><div class="two-fields"><label class="field">Anderes Datum<input class="input" type="date" name="date" value="${e.event_date}" min="${localDate()}" required></label><label class="field">Uhrzeit<input class="input" type="time" name="time" value="${String(e.event_time).slice(0,5)}" required></label></div><button class="btn primary wide" type="submit">${icon('send',18)} Vorschlag senden</button></form>`;}
+function personDetail(p){
+ const b=nextBirthday(p),canEdit=canManage(p.id);
+ return `<div class="profile-cover"><div class="profile-big">${avatar(p,'xxl')}</div><div><h3>${safe(p.display_name)}</h3><span>${p.can_login?'App-Nutzer':'Familienmitglied ohne Login'}</span></div></div>
+ ${p.birth_date?`<div class="profile-birthday">${icon('gift',26)}<span><b>Geburtstag am ${safe(fmt(p.birth_date,{day:'numeric',month:'long'}))}</b><small>${b.days===0?'Heute ist es so weit!':b.days===1?'Schon morgen!':`In ${b.days} Tagen`}</small></span></div>`:`<div class="profile-birthday">${icon('gift',25)}<span><b>Noch kein Geburtstag eingetragen</b><small>${canEdit?'Du kannst ihn unten ergänzen.':'Die berechtigte Person kann ihn ergänzen.'}</small></span></div>`}
+ ${p.birth_date?`<button class="btn primary wide" data-action="birthday-event" data-id="${p.id}">${icon('plus',20)} Einladung zum Geburtstag erstellen</button>`:''}
+ ${canEdit?`<section class="detail-panel"><h3>${icon('edit',20)} Profil bearbeiten</h3><form id="profile-form" data-id="${p.id}" class="stack"><label class="field">Geburtstag<input class="input" type="date" name="birthdate" max="${localDate()}" value="${p.birth_date||''}"></label><p class="form-help">Du kannst einen Geburtstag jederzeit nachtragen oder ändern.</p><label class="field">Profilbild <small>(optional)</small><input class="input file-input" type="file" name="avatar" accept="image/jpeg,image/png,image/webp"></label><p class="form-help">Das Bild wird auf eine quadratische Ansicht zugeschnitten und privat gespeichert. Maximal 8 MB Originalgröße.</p><button class="btn primary wide" type="submit">${icon('check',19)} Profil speichern</button></form></section>`:''}`;
+}
+function accountView(){const own=me(),supported=('Notification' in window);return `<div class="account-profile">${avatar(own,'xl')}<div><h3>${safe(own.display_name)}</h3><p>${safe(user?.email||'Persönlich angemeldet')}</p></div></div><div class="account-section"><button class="account-link" data-action="person" data-id="${own.id}">${icon('camera',23)} <span>Mein Profil & Bild</span>${icon('chevron',20)}</button><button class="account-link" data-action="enable-notifications">${icon('bell',23)} <span>Geräte-Benachrichtigungen <small>${supported?Notification.permission==='granted'?'Für die geöffnete App aktiviert':'Aktivieren':'In diesem Browser nicht verfügbar'}</small></span>${icon('chevron',20)}</button></div><p class="form-help notice"><b>Wichtig:</b> Terminerinnerungen werden bereits serverseitig in der App gespeichert. Geräte-Benachrichtigungen funktionieren derzeit, wenn die App geöffnet ist. Push bei geschlossener App folgt noch.</p><button class="btn secondary wide" data-action="logout">${icon('logout',19)} Abmelden</button>`;}
+function notificationsView(){return `${data.notifications.length?data.notifications.map(n=>`<button class="notification-row ${!n.read_at?'unread':''}" data-action="notification-open" data-id="${n.id}"><span class="notification-symbol">${icon(n.related_person_id?'gift':n.kind==='nudge'?'bell':'calendar',24)}</span><span><strong>${safe(n.related_person_id?'Geburtstag':n.kind==='invited'?'Neue Einladung':n.kind==='rescheduled'?'Termin verschoben':n.kind==='cancelled'?'Termin abgesagt':n.kind==='deadline_reminder'?'Antwortfrist läuft ab':n.kind==='nudge'?'Erinnerung':'Familien-Nachricht')}</strong><p>${safe(n.message)}</p><small>${new Date(n.created_at).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'})}</small></span>${icon('chevron',18)}</button>`).join(''):'<div class="empty-state compact">Hier erscheinen eure Einladungen, Erinnerungen und Änderungen.</div>'}<p class="form-help notice">Die App prüft jeden Morgen, welche Geburtstage und Antwortfristen anstehen.</p>`;}
+function pendingView(){const list=pendingEvents();return `<p class="form-help">${list.length?'Diese Einladungen warten noch auf deine Antwort. Wähle einen Termin, um direkt zuzusagen oder abzusagen.':'Du hast aktuell alle Einladungen beantwortet.'}</p><div class="event-list">${list.map(eventCard).join('')}</div>`;}
+
+function currentForm(){return $('#modal-root form');}
+function formValues(form){const f=new FormData(form);return {f,date:String(f.get('date')||''),time:String(f.get('time')||''),deadline:String(f.get('deadline')||'')};}
+function formValidDates(date,deadline){if(!date||!deadline||deadline>date){toast('Die Antwortfrist muss spätestens am Termintag liegen.');return false;}if(date<localDate()){toast('Der Termin muss heute oder in der Zukunft liegen.');return false;}return true;}
+function invitedFromForm(form){const ids=[...form.querySelectorAll('input[name="invitees"]:checked')].map(x=>x.value);ids.push(me().id);return [...new Set(ids)];}
+async function saveNewEvent(form){const {f,date,time,deadline}=formValues(form);if(!formValidDates(date,deadline))return;
+ const title=String(f.get('title')||'').trim(),teaser=String(f.get('teaser')||'').trim();if(!title||teaser.length>90){toast('Titel oder Einladungssatz überprüfen.');return;}
+ const values={p_title:title,p_kind:String(f.get('kind')),p_teaser:teaser,p_event_date:date,p_event_time:time,p_deadline:deadline,p_location:String(f.get('location')||'').trim(),p_description:String(f.get('description')||'').trim(),p_invitees:invitedFromForm(form),p_maps_url:'',p_cover_style:String(f.get('cover_style')||'illustrated')};
+ await work(()=>API.createEvent(values),'Einladung erstellt.',async id=>{birthdayDraft=null;showModal('event',id);});
+}
+async function saveExistingEvent(form){const id=form.dataset.id,e=data.events.find(x=>x.id===id);if(!e||e.creator_user_id!==user.id)return;
+ const f=new FormData(form),deadline=String(f.get('deadline'));if(deadline>e.event_date){toast('Die Antwortfrist liegt nach dem Termin.');return;}
+ const invited=invitedFromForm(form),old=eventInvites(id),add=invited.filter(x=>!old.includes(x)),remove=old.filter(x=>!invited.includes(x));
+ const fields={title:String(f.get('title')).trim(),teaser:String(f.get('teaser')).trim(),kind:String(f.get('kind')),cover_style:String(f.get('cover_style')),location_text:String(f.get('location')).trim(),description:String(f.get('description')).trim(),response_deadline:deadline};
+ await work(async()=>{await API.updateEvent(id,fields);await API.replaceInvitees(id,add,remove);},'Einladung aktualisiert.',async()=>showModal('event',id));
+}
+async function moveEvent(form){const id=form.dataset.id,{date,time,deadline}=formValues(form),e=data.events.find(x=>x.id===id);if(!e||e.creator_user_id!==user.id||!formValidDates(date,deadline))return;
+ if(date===e.event_date&&time===String(e.event_time).slice(0,5)){toast('Bitte ein anderes Datum oder eine andere Uhrzeit auswählen.');return;}
+ if(!confirm('Termin verschieben? Alle bisherigen Zusagen müssen danach erneut bestätigt werden.'))return;
+ await work(()=>API.updateEvent(id,{event_date:date,event_time:time,response_deadline:deadline}),'Termin verschoben. Die Familie muss erneut antworten.',async()=>showModal('event',id));
+}
+async function saveAlternative(form){const id=form.dataset.id,{date,time}=formValues(form),e=data.events.find(x=>x.id===id);if(!e||!date||date<localDate())return;
+ if(date===e.event_date&&time===String(e.event_time).slice(0,5)){toast('Wähle bitte eine echte Alternative.');return;}
+ await work(()=>API.addAlternative(id,user.id,date,time),'Terminvorschlag übermittelt.',async()=>showModal('event',id));
+}
+function croppedBlob(file){return new Promise(async(resolve,reject)=>{
+  if(file.size>8*1024*1024){reject(Error('Das Foto ist größer als 8 MB.'));return;}
+  if(!['image/jpeg','image/png','image/webp'].includes(file.type)){reject(Error('Bitte JPG, PNG oder WebP auswählen.'));return;}
+  let bitmap=null,objectUrl=null,source=null;
+  try{
+    if('createImageBitmap' in window){bitmap=await createImageBitmap(file);source=bitmap;}
+    else {objectUrl=URL.createObjectURL(file);source=new Image();await new Promise((res,rej)=>{source.onload=res;source.onerror=rej;source.src=objectUrl;});}
+    const w=source.width,h=source.height,s=Math.min(w,h),canvas=document.createElement('canvas');canvas.width=384;canvas.height=384;
+    const ctx=canvas.getContext('2d');if(!ctx)throw Error('Bildverarbeitung nicht verfügbar');
+    ctx.drawImage(source,(w-s)/2,(h-s)/2,s,s,0,0,384,384);
+    canvas.toBlob(blob=>{if(blob)resolve(blob);else reject(Error('Bild konnte nicht verarbeitet werden'));},'image/webp',.83);
+  }catch(e){reject(e);}finally{bitmap?.close?.();if(objectUrl)URL.revokeObjectURL(objectUrl);}
+ });}
+async function saveProfile(form){const id=form.dataset.id;if(!canManage(id))return;
+ const formdata=new FormData(form),date=String(formdata.get('birthdate')||'');if(date&&date>localDate()){toast('Der Geburtstag darf nicht in der Zukunft liegen.');return;}
+ await work(async()=>{
+  const fields={birth_date:date||null},file=formdata.get('avatar');
+  if(file&&file instanceof File&&file.size){const blob=await croppedBlob(file);fields.avatar_path=await API.uploadAvatar(id,blob);avatarCache.delete(id);}
+  await API.savePerson(id,fields);
+ },'Profil gespeichert.',async()=>showModal('person',id));
+}
+async function applyResponse(id,status){const e=data.events.find(x=>x.id===id);if(!e||e.status!=='active')return;
+ const old=responseFor(id,me().id),persons=status==='yes'?[...new Set([me().id,...(old?.status==='yes'?guestsFor(id,user.id,e.revision):[])])]:[];
+ await work(()=>API.respond(id,status,persons),'Deine Rückmeldung wurde gespeichert.',async()=>showModal('event',id));
+}
+async function updateCompanions(input){const id=input.dataset.event,e=data.events.find(x=>x.id===id);if(!e)return;
+ const ids=[me().id,...[...$('#modal-root').querySelectorAll('input[data-action="companion"]:checked')].map(x=>x.dataset.person)];
+ await work(()=>API.respond(id,'yes',[...new Set(ids)]),'Begleitpersonen aktualisiert.',async()=>showModal('event',id));
+}
+async function readNotification(id){const n=data.notifications.find(x=>x.id===id);if(!n)return;
+ await work(()=>API.markRead([id]),null,async()=>{if(n.related_person_id)showModal('person',n.related_person_id);else if(n.event_id&&data.events.some(e=>e.id===n.event_id))showModal('event',n.event_id);else showModal('notifications');});
+}
+async function openNotifications(){showModal('notifications');const ids=unread().map(n=>n.id);if(ids.length)await work(()=>API.markRead(ids),null,async()=>showModal('notifications'));}
+async function enableNotifications(){
+ if(!('Notification' in window)){toast('Dieser Browser unterstützt keine Geräte-Benachrichtigungen.');return;}
+ try{const permission=await Notification.requestPermission();if(permission==='granted'){toast('Geräte-Mitteilungen aktiviert, solange Familienzeit geöffnet ist.');}else toast('Keine Erlaubnis erteilt. Du siehst Mitteilungen weiterhin in der App.');if(modal?.type==='account')renderModal();}
+ catch(e){toast('Die Benachrichtigungen konnten nicht aktiviert werden.');}
+}
+async function notifyWhileOpen(newNotifications){if(!('Notification' in window)||Notification.permission!=='granted'||!('serviceWorker' in navigator))return;
+ const seenKey='familienzeit-notified-08';let seen=[];try{seen=JSON.parse(localStorage.getItem(seenKey)||'[]')}catch{}
+ const seenSet=new Set(seen);
+ for(const n of newNotifications.filter(n=>!n.read_at).slice(0,3)){
+  if(seenSet.has(n.id)||Date.now()-new Date(n.created_at).getTime()>180000)continue;
+  try{const reg=await navigator.serviceWorker.ready;await reg.showNotification('Familienzeit',{body:n.message,icon:'./icon-192.png',badge:'./icon-192.png',tag:'familienzeit-'+n.id,data:{event:n.event_id||null,person:n.related_person_id||null}});seenSet.add(n.id);}catch(e){console.warn('Geräte-Hinweis',e);}
+ }
+ try{localStorage.setItem(seenKey,JSON.stringify([...seenSet].slice(-100)))}catch{}
+}
+
+document.addEventListener('click',async ev=>{
+ const el=ev.target.closest('[data-action]');if(!el)return;
+ const a=el.dataset.action,id=el.dataset.id;
+ if(a==='close-backdrop'){if(ev.target===el)closeModal();return;}
+ if(a==='close'){closeModal();return;}
+ if(a==='retry'){boot();return;}
+ if(a==='logout'){await work(async()=>{unsubscribe?.();unsubscribe=null;await API.logout();user=null;mode='login';closeModal();render();});return;}
+ if(mode!=='ready')return;
+ if(a==='page'){page=el.dataset.page;closeModal();render();window.scrollTo(0,0);return;}
+ if(a==='new-event'){birthdayDraft=null;showModal('new');return;}
+ if(a==='pending'){const list=pendingEvents();if(list.length===1)showModal('event',list[0].id);else if(list.length>1)showModal('pending');else toast('Alles erledigt. Du hast keine offenen Rückmeldungen.');return;}
+ if(a==='event'){showModal('event',id);return;}
+ if(a==='person'){showModal('person',id);return;}
+ if(a==='birthday-event'){birthdayDraft={personId:id,date:nextBirthday(person(id))?.date};showModal('new');return;}
+ if(a==='invite-code'){if(!me()?.can_invite||!person(id).can_login)return;await work(()=>API.createInviteCode(id),null,async code=>{showModal('invite',id);modal.code=code;renderModal();});return;}
+ if(a==='copy-invite'){const code=modal?.code;if(!code)return;try{await navigator.clipboard.writeText(code);toast('Einladungscode kopiert.');}catch{toast('Bitte den Code markieren und kopieren.');}return;}
+ if(a==='account'){showModal('account');return;}
+ if(a==='notifications'){await openNotifications();return;}
+ if(a==='notification-open'){await readNotification(id);return;}
+ if(a==='enable-notifications'){await enableNotifications();return;}
+ if(a==='calendar-day'){selectedDay=el.dataset.date;render();return;}
+ if(a==='month-prev'||a==='month-next'){month.setDate(1);month.setMonth(month.getMonth()+(a==='month-next'?1:-1));selectedDay=iso(month.getFullYear(),month.getMonth()+1,1);render();return;}
+ if(a==='respond'){await applyResponse(id,el.dataset.response);return;}
+ if(a==='nudge'){await work(()=>API.nudge(id,el.dataset.person),'Persönliche Erinnerung in der App verschickt.',async()=>showModal('event',id));return;}
+ if(a==='alternative'){showModal('alternative',id);return;}
+ if(a==='edit-event'){showModal('edit',id);return;}
+ if(a==='move-event'){showModal('move',id);return;}
+ if(a==='cancel-event'){const e=data.events.find(x=>x.id===id);if(!e||e.creator_user_id!==user.id)return;if(!confirm('Termin wirklich absagen? Alle Eingeladenen erhalten eine Nachricht in der App.'))return;
+   await work(()=>API.updateEvent(id,{status:'cancelled'}),'Termin abgesagt.',async()=>showModal('event',id));return;}
+ if(a==='accept-alternative'){const e=data.events.find(x=>x.id===id),alt=data.alternatives.find(a=>a.id===el.dataset.alt&&a.event_id===id);if(!e||e.creator_user_id!==user.id||!alt)return;
+  if((e.response_deadline||e.event_date)>alt.proposed_date){toast('Antwortfrist liegt nach dem vorgeschlagenen Termin. Bitte über „Verschieben“ anpassen.');return;}
+  if(!confirm('Alternativtermin übernehmen? Bestehende Antworten verlieren ihre Gültigkeit.'))return;
+  await work(()=>API.updateEvent(id,{event_date:alt.proposed_date,event_time:alt.proposed_time}),'Termin verschoben.',async()=>showModal('event',id));return;}
+});
+document.addEventListener('submit',async ev=>{
+ const form=ev.target;ev.preventDefault();const id=form.id;
+ if(id==='claim-form'){const code=String(new FormData(form).get('code')||'').trim();if(!code)return;await work(()=>API.claimInviteCode(code),'Dein Familienprofil ist aktiviert.',async()=>{closeModal();render();});return;}
+ if(id==='login-form'){const d=new FormData(form);await work(async()=>{await API.login(String(d.get('email')).trim(),String(d.get('password')));user=await API.getUser();if(!user)throw Error('Anmeldung fehlgeschlagen');await fetchData();if(mode==='ready'){unsubscribe?.();unsubscribe=API.subscribe(scheduleRefresh);await openDeeplink();}},'Angemeldet.');return;}
+ if(mode!=='ready')return;
+ if(id==='new-event-form')await saveNewEvent(form);
+ else if(id==='edit-event-form')await saveExistingEvent(form);
+ else if(id==='move-event-form')await moveEvent(form);
+ else if(id==='alternative-form')await saveAlternative(form);
+ else if(id==='profile-form')await saveProfile(form);
+ else if(id==='comment-form'){const text=String(new FormData(form).get('message')||'').trim();if(!text)return;await work(()=>API.addComment(form.dataset.id,user.id,text),'Kommentar gespeichert.',async()=>showModal('event',form.dataset.id));}
+});
+document.addEventListener('change',async ev=>{
+ const input=ev.target;
+ if(input.dataset.action==='companion'&&mode==='ready')await updateCompanions(input);
+ if(input.name==='kind'&&currentForm()){
+   const selected=input.value;
+   for(const cover of currentForm().querySelectorAll('.cover-preview')){
+     cover.className=cover.className.replace(/category-[a-z]+/g,'category-'+selected);
+     const art=cover.querySelector('.preview-art');if(art)art.innerHTML=icon(typeIcon(selected),34);
+   }
  }
 });
+if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost'))navigator.serviceWorker.register('./sw.js').catch(console.warn);
+boot();
