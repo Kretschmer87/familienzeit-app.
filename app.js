@@ -1,4 +1,4 @@
-/* Familienzeit 0.9 · Klarer, warmer Familienkalender · mobile first */
+/* Familienzeit 0.9.1 · Klarer, warmer Familienkalender · mobile first */
 import * as API from './backend.js';
 const $=q=>document.querySelector(q);
 const PEOPLE=['Martin','Stephanie','Fynn','Sonja','Mirco','Bela','Ella','Holger','Ivonne','Susanne'];
@@ -232,7 +232,7 @@ function personDetail(p){
  ${p.birth_date?`<button class="btn primary wide" data-action="birthday-event" data-id="${p.id}">${icon('plus',20)} Einladung zum Geburtstag erstellen</button>`:''}
  ${canEdit?`<section class="detail-panel"><h3>${icon('edit',20)} Profil bearbeiten</h3><form id="profile-form" data-id="${p.id}" class="stack"><label class="field">Geburtstag<input class="input" type="date" name="birthdate" max="${localDate()}" value="${p.birth_date||''}"></label><p class="form-help">Du kannst einen Geburtstag jederzeit nachtragen oder ändern.</p><label class="field">Profilbild <small>(optional)</small><input class="input file-input" type="file" name="avatar" accept="image/jpeg,image/png,image/webp"></label><p class="form-help">Das Bild wird auf eine quadratische Ansicht zugeschnitten und privat gespeichert. Maximal 8 MB Originalgröße.</p><button class="btn primary wide" type="submit">${icon('check',19)} Profil speichern</button></form></section>`:''}`;
 }
-function accountView(){const own=me(),supported=('Notification' in window);return `<div class="account-profile">${avatar(own,'xl')}<div><h3>${safe(own.display_name)}</h3><p>${safe(user?.email||'Persönlich angemeldet')}</p></div></div><div class="account-section"><button class="account-link" data-action="person" data-id="${own.id}">${icon('camera',23)} <span>Mein Profil & Bild</span>${icon('chevron',20)}</button><button class="account-link" data-action="enable-notifications">${icon('bell',23)} <span>Geräte-Benachrichtigungen <small>${supported?Notification.permission==='granted'?'Für die geöffnete App aktiviert':'Aktivieren':'In diesem Browser nicht verfügbar'}</small></span>${icon('chevron',20)}</button></div><p class="form-help notice"><b>Wichtig:</b> Terminerinnerungen werden bereits serverseitig in der App gespeichert. Geräte-Benachrichtigungen funktionieren derzeit, wenn die App geöffnet ist. Push bei geschlossener App folgt noch.</p><p class="app-version">Familienzeit Version 0.9 · Klar & warm</p><button class="btn secondary wide" data-action="logout">${icon('logout',19)} Abmelden</button>`;}
+function accountView(){const own=me(),supported=('Notification' in window);return `<div class="account-profile">${avatar(own,'xl')}<div><h3>${safe(own.display_name)}</h3><p>${safe(user?.email||'Persönlich angemeldet')}</p></div></div><div class="account-section"><button class="account-link" data-action="person" data-id="${own.id}">${icon('camera',23)} <span>Mein Profil & Bild</span>${icon('chevron',20)}</button><button class="account-link" data-action="enable-notifications">${icon('bell',23)} <span>Geräte-Benachrichtigungen <small>${supported?Notification.permission==='granted'?'Für die geöffnete App aktiviert':'Aktivieren':'In diesem Browser nicht verfügbar'}</small></span>${icon('chevron',20)}</button></div><p class="form-help notice"><b>Wichtig:</b> Terminerinnerungen werden bereits serverseitig in der App gespeichert. Geräte-Benachrichtigungen funktionieren derzeit, wenn die App geöffnet ist. Push bei geschlossener App folgt noch.</p><p class="app-version">Familienzeit Version 0.9.1 · Klar & warm</p><button class="btn secondary wide" data-action="logout">${icon('logout',19)} Abmelden</button>`;}
 function notificationsView(){return `${data.notifications.length?data.notifications.map(n=>`<button class="notification-row ${!n.read_at?'unread':''}" data-action="notification-open" data-id="${n.id}"><span class="notification-symbol">${icon(n.related_person_id?'gift':n.kind==='nudge'?'bell':'calendar',24)}</span><span><strong>${safe(n.related_person_id?'Geburtstag':n.kind==='invited'?'Neue Einladung':n.kind==='rescheduled'?'Termin verschoben':n.kind==='cancelled'?'Termin abgesagt':n.kind==='deadline_reminder'?'Antwortfrist läuft ab':n.kind==='nudge'?'Erinnerung':'Familien-Nachricht')}</strong><p>${safe(n.message)}</p><small>${new Date(n.created_at).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'})}</small></span>${icon('chevron',18)}</button>`).join(''):'<div class="empty-state compact">Hier erscheinen eure Einladungen, Erinnerungen und Änderungen.</div>'}<p class="form-help notice">Die App prüft jeden Morgen, welche Geburtstage und Antwortfristen anstehen.</p>`;}
 function pendingView(){const list=pendingEvents();return `<p class="form-help">${list.length?'Diese Einladungen warten noch auf deine Antwort. Wähle einen Termin, um direkt zuzusagen oder abzusagen.':'Du hast aktuell alle Einladungen beantwortet.'}</p><div class="event-list">${list.map(eventCard).join('')}</div>`;}
 
@@ -366,5 +366,45 @@ document.addEventListener('change',async ev=>{
    }
  }
 });
-if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost'))navigator.serviceWorker.register('./sw.js').catch(console.warn);
+// Version-Check: Ein geöffnetes PWA-Fenster kann beim Update stehenbleiben, obwohl GitHub
+// Pages schon die neue Version liefert. Wir prüfen bei Rückkehr in die App und periodisch.
+// Keine Reloads während der Bearbeitung von Terminen/Profilen, damit Eingaben erhalten bleiben.
+const APP_VERSION='0.9.1';
+let checkingVersion=false;
+async function checkForAppUpdate(){
+ if(checkingVersion||document.visibilityState==='hidden'||!navigator.onLine)return;
+ checkingVersion=true;
+ try{
+  const checkUrl=new URL('./index.html',location.href);
+  checkUrl.searchParams.set('fz-update',String(Date.now()));
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),7000);
+  let response;
+  try{response=await fetch(checkUrl,{cache:'no-store',signal:controller.signal});}
+  finally{clearTimeout(timer);}
+  if(!response.ok)return;
+  const html=await response.text();
+  const match=html.match(/<meta\s+name=["']familienzeit-version["']\s+content=["']([^"']+)["']/i);
+  if(!match||match[1]===APP_VERSION)return;
+  // Nothing should be discarded while a user is entering data in a form.
+  if(document.querySelector('#modal-root .sheet, input:focus, textarea:focus, select:focus'))return;
+  const key='familienzeit-update-attempt-'+match[1];
+  if(sessionStorage.getItem(key))return;
+  sessionStorage.setItem(key,'1');
+  if('serviceWorker' in navigator){
+    const registration=await navigator.serviceWorker.getRegistration();
+    await registration?.update();
+  }
+  const target=new URL('./index.html',location.href);
+  target.searchParams.set('v',match[1]);
+  location.replace(target.href);
+ }catch(err){console.info('Update-Prüfung später erneut',err);}
+ finally{checkingVersion=false;}
+}
+if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost')){
+ navigator.serviceWorker.register('./sw.js?v=091',{updateViaCache:'none'}).then(reg=>reg.update()).catch(console.warn);
+}
+window.addEventListener('pageshow',()=>setTimeout(checkForAppUpdate,1000));
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')checkForAppUpdate();});
+window.setInterval(checkForAppUpdate,3*60*1000);
 boot();
