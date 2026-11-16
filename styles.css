@@ -5,3 +5,56 @@
 @media(min-width:680px){.sheet{height:min(91dvh,900px);border-radius:29px;align-self:center}.overlay{align-items:center}.app-shell{padding-top:33px}.bottom-nav{bottom:23px}}
 
 .invite-action-row{padding:0 6px 13px 82px}.invitation-code{background:#fff2f6;border:1px dashed #cb7896;border-radius:16px;padding:16px;text-align:center;letter-spacing:.08em;overflow-wrap:anywhere;font-size:18px;color:#9e4d73;font-weight:850;margin:17px 0}.invite-action-row .btn{font-size:12px}
+
+/* v0.8.1 – warmer, kontrastreicher und eigenständiger Look */
+:root{--ink:#342d42;--body:#66526c;--rose:#c95275;--rose-dark:#b33a62;--violet:#715fa8;--shadow:0 19px 42px rgba(107,67,96,.16),0 3px 11px rgba(107,67,96,.07)}
+body{background:radial-gradient(ellipse 390px 340px at -110px 60px,rgba(255,179,158,.38),transparent 76%),radial-gradient(ellipse 480px 420px at 114% 360px,rgba(187,156,240,.31),transparent 76%),linear-gradient(164deg,#fff7ef 0%,#fff4f1 48%,#f9f0fd 100%);background-attachment:fixed}
+.brand-symbol{background:linear-gradient(137deg,#ffd7c6,#f1a1b7 78%,#dcb6ff);color:#9f315b;box-shadow:0 12px 22px rgba(181,92,127,.22),inset 0 2px rgba(255,255,255,.85)}
+.brand strong{color:#48334d}.brand small{color:#ad6882;font-weight:700;letter-spacing:.01em}
+.hero{min-height:252px;background:radial-gradient(ellipse 185px 170px at 97% 6%,rgba(255,245,179,.94),transparent 81%),radial-gradient(ellipse 218px 230px at 93% 99%,rgba(192,149,234,.66),transparent 79%),radial-gradient(ellipse 210px 200px at -14% 110%,rgba(251,173,139,.58),transparent 80%),linear-gradient(123deg,#ffd4b9 0%,#f7bdce 47%,#d9c3f1 100%);box-shadow:0 20px 52px rgba(186,101,134,.22),inset 0 2px rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.81)}
+.hero::after{content:'';position:absolute;right:-38px;bottom:-72px;width:170px;height:170px;border:25px solid rgba(255,250,240,.25);border-radius:45%;transform:rotate(28deg);pointer-events:none}
+.hero h1{color:#563550;text-shadow:0 1px rgba(255,255,255,.4)}.hero h1 em{color:#ba3c6b}.hero-pattern{opacity:.44;color:#b74d78;top:28px;right:8px}.hero>p:not(.hero-kicker){color:#664658;font-weight:540}
+.hero-kicker,.eyebrow{color:#a04c70}.hero-bottom span{background:rgba(255,255,255,.64);color:#72465f;box-shadow:0 4px 12px rgba(128,72,96,.07)}
+.open-callout.needs-answer{background:linear-gradient(125deg,#ffe7dd 0%,#ffdae2 52%,#f1d8fa 100%);box-shadow:0 14px 27px rgba(187,105,129,.19);border:1px solid rgba(255,255,255,.89);padding:17px;align-items:center;transform:none}
+.needs-answer .callout-medal{background:linear-gradient(146deg,#fa8a93,#d65a87);color:white;box-shadow:0 9px 17px rgba(172,56,94,.19)}
+.needs-answer .callout-text strong{color:#743b59;font-size:19px;line-height:1.22}
+.needs-answer .callout-text small{color:#80526a;font-size:14px;line-height:1.4}
+.callout-action{display:inline-flex;align-items:center;gap:6px;margin-top:10px;font-size:14px;font-weight:850;color:#b43c66;border-radius:13px;background:rgba(255,255,255,.7);padding:7px 10px;box-shadow:0 3px 8px rgba(177,73,116,.08)}
+.needs-answer .round-arrow{background:#fff7fc;color:#b54c78}
+.open-callout.done-answer{background:linear-gradient(110deg,#e5f3e8,#eff9ed,#f9f8ed);border:1px solid white;box-shadow:0 10px 26px rgba(80,128,103,.10)}
+.done-answer .callout-medal{background:linear-gradient(150deg,#a1d8b0,#5bb39d);color:white}
+.done-answer .callout-text strong{color:#28594f}.done-answer .callout-text small{color:#54746c}
+.section-title h2{color:#43334b}.section-title h2::after{content:'';display:block;width:34px;height:4px;background:linear-gradient(90deg,#e48d91,#ae87d6);border-radius:9px;margin-top:7px}
+.text-action{color:#b34071;font-weight:800}
+.birthday-mini{background:linear-gradient(140deg,#ffe7da,#fae0ef);box-shadow:0 13px 27px rgba(167,90,121,.13)}
+.birthday-mini:nth-child(2n){background:linear-gradient(133deg,#eddbff,#ffead6)}
+.birthday-mini:nth-child(3n){background:linear-gradient(135deg,#e6f5dd,#ffeed6)}
+.birthday-copy strong{color:#49334d}.tiny-pill{color:#953e62;background:rgba(255,255,255,.66)}
+.event-card{box-shadow:0 15px 32px rgba(102,73,105,.16),0 3px 9px rgba(103,68,104,.06);border-color:rgba(255,255,255,.98);border-radius:29px}
+.category-coffee{--cover1:#fbe3c5;--cover2:#dbb58c;--cover3:#ffeecc}
+.category-birthday{--cover1:#ffcfdf;--cover2:#e2a6cc;--cover3:#ffebba}
+.category-dining{--cover1:#e1f0c8;--cover2:#9dceaf;--cover3:#ffe4ba}
+.category-gathering{--cover1:#e9d2f7;--cover2:#cab3ea;--cover3:#ffdbdf}
+.category-party{--cover1:#f9cfec;--cover2:#d6a5e8;--cover3:#ffe4cc}
+.category-trip{--cover1:#d3f2f2;--cover2:#9fcadf;--cover3:#ffead1}
+.category-holiday{--cover1:#ddedc1;--cover2:#aad5be;--cover3:#f7ddc5}
+.category-other{--cover1:#dce8ff;--cover2:#b8c8f5;--cover3:#fbd9e7}
+.cover-illustrated{background:radial-gradient(circle at 98% 2%,rgba(255,255,255,.86),transparent 40%),radial-gradient(circle at -2% 99%,var(--cover3),transparent 55%),linear-gradient(120deg,var(--cover1),var(--cover2))}
+.cover-warm{background:radial-gradient(circle at 97% 10%,#fff9d9e8,transparent 47%),linear-gradient(130deg,var(--cover3),var(--cover1) 39%,var(--cover2))}
+.card-watermark{opacity:.23;right:-5px;top:8px;color:#7d3779;transform:rotate(-14deg)}
+.cover-soft .card-watermark{opacity:.08}.cover-warm .card-watermark{opacity:.21}
+.card-glow{background:rgba(255,255,255,.43);right:-32px;top:-60px;width:180px;height:180px}
+.category-badge{background:rgba(255,255,255,.78)!important;color:#69425e!important;box-shadow:0 2px 7px rgba(100,58,82,.07)}
+.date-tile{background:rgba(255,255,255,.88);box-shadow:0 10px 17px rgba(108,75,108,.11),inset 0 1px #fff}
+.event-card-bottom{border-top-color:rgba(255,255,255,.57)}
+.rsvp-chip.open{background:#fff1e5;color:#a44c63}.rsvp-chip.yes{background:#e3f5ea;color:#2f866b}
+.bottom-nav{background:rgba(255,252,251,.94);border:1px solid rgba(255,255,255,.92);box-shadow:0 -8px 30px rgba(94,70,96,.12),0 9px 22px rgba(105,76,113,.12)}
+.nav-item.create{background:linear-gradient(140deg,#e87f8a,#ba5d94)!important;color:white!important;box-shadow:0 9px 19px rgba(164,71,123,.27)}
+.nav-item.active{color:#b24f83}.nav-item.active:not(.create){background:#ffe7e9}
+.btn.primary,.solid-btn{background:linear-gradient(120deg,#ee8389,#bf5083)!important;border-color:transparent!important;box-shadow:0 11px 20px rgba(179,67,119,.20)!important;color:#fff!important}
+.app-version{text-align:center;color:#8e7186;font-size:12px;margin-top:18px}
+@media (prefers-reduced-motion:reduce){.event-card,.open-callout{transition:none}}
+/* Long labels and decorative gradients must not widen small mobile viewports. */
+html,body{max-width:100%;overflow-x:clip}
+.event-copy,.callout-text,.birthday-copy{min-width:0}
+.event-copy strong,.callout-text small{overflow-wrap:anywhere}
