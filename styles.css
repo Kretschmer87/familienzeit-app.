@@ -6,55 +6,170 @@
 
 .invite-action-row{padding:0 6px 13px 82px}.invitation-code{background:#fff2f6;border:1px dashed #cb7896;border-radius:16px;padding:16px;text-align:center;letter-spacing:.08em;overflow-wrap:anywhere;font-size:18px;color:#9e4d73;font-weight:850;margin:17px 0}.invite-action-row .btn{font-size:12px}
 
-/* v0.8.1 – warmer, kontrastreicher und eigenständiger Look */
-:root{--ink:#342d42;--body:#66526c;--rose:#c95275;--rose-dark:#b33a62;--violet:#715fa8;--shadow:0 19px 42px rgba(107,67,96,.16),0 3px 11px rgba(107,67,96,.07)}
-body{background:radial-gradient(ellipse 390px 340px at -110px 60px,rgba(255,179,158,.38),transparent 76%),radial-gradient(ellipse 480px 420px at 114% 360px,rgba(187,156,240,.31),transparent 76%),linear-gradient(164deg,#fff7ef 0%,#fff4f1 48%,#f9f0fd 100%);background-attachment:fixed}
-.brand-symbol{background:linear-gradient(137deg,#ffd7c6,#f1a1b7 78%,#dcb6ff);color:#9f315b;box-shadow:0 12px 22px rgba(181,92,127,.22),inset 0 2px rgba(255,255,255,.85)}
-.brand strong{color:#48334d}.brand small{color:#ad6882;font-weight:700;letter-spacing:.01em}
-.hero{min-height:252px;background:radial-gradient(ellipse 185px 170px at 97% 6%,rgba(255,245,179,.94),transparent 81%),radial-gradient(ellipse 218px 230px at 93% 99%,rgba(192,149,234,.66),transparent 79%),radial-gradient(ellipse 210px 200px at -14% 110%,rgba(251,173,139,.58),transparent 80%),linear-gradient(123deg,#ffd4b9 0%,#f7bdce 47%,#d9c3f1 100%);box-shadow:0 20px 52px rgba(186,101,134,.22),inset 0 2px rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.81)}
-.hero::after{content:'';position:absolute;right:-38px;bottom:-72px;width:170px;height:170px;border:25px solid rgba(255,250,240,.25);border-radius:45%;transform:rotate(28deg);pointer-events:none}
-.hero h1{color:#563550;text-shadow:0 1px rgba(255,255,255,.4)}.hero h1 em{color:#ba3c6b}.hero-pattern{opacity:.44;color:#b74d78;top:28px;right:8px}.hero>p:not(.hero-kicker){color:#664658;font-weight:540}
-.hero-kicker,.eyebrow{color:#a04c70}.hero-bottom span{background:rgba(255,255,255,.64);color:#72465f;box-shadow:0 4px 12px rgba(128,72,96,.07)}
-.open-callout.needs-answer{background:linear-gradient(125deg,#ffe7dd 0%,#ffdae2 52%,#f1d8fa 100%);box-shadow:0 14px 27px rgba(187,105,129,.19);border:1px solid rgba(255,255,255,.89);padding:17px;align-items:center;transform:none}
-.needs-answer .callout-medal{background:linear-gradient(146deg,#fa8a93,#d65a87);color:white;box-shadow:0 9px 17px rgba(172,56,94,.19)}
-.needs-answer .callout-text strong{color:#743b59;font-size:19px;line-height:1.22}
-.needs-answer .callout-text small{color:#80526a;font-size:14px;line-height:1.4}
-.callout-action{display:inline-flex;align-items:center;gap:6px;margin-top:10px;font-size:14px;font-weight:850;color:#b43c66;border-radius:13px;background:rgba(255,255,255,.7);padding:7px 10px;box-shadow:0 3px 8px rgba(177,73,116,.08)}
-.needs-answer .round-arrow{background:#fff7fc;color:#b54c78}
-.open-callout.done-answer{background:linear-gradient(110deg,#e5f3e8,#eff9ed,#f9f8ed);border:1px solid white;box-shadow:0 10px 26px rgba(80,128,103,.10)}
-.done-answer .callout-medal{background:linear-gradient(150deg,#a1d8b0,#5bb39d);color:white}
-.done-answer .callout-text strong{color:#28594f}.done-answer .callout-text small{color:#54746c}
-.section-title h2{color:#43334b}.section-title h2::after{content:'';display:block;width:34px;height:4px;background:linear-gradient(90deg,#e48d91,#ae87d6);border-radius:9px;margin-top:7px}
-.text-action{color:#b34071;font-weight:800}
-.birthday-mini{background:linear-gradient(140deg,#ffe7da,#fae0ef);box-shadow:0 13px 27px rgba(167,90,121,.13)}
-.birthday-mini:nth-child(2n){background:linear-gradient(133deg,#eddbff,#ffead6)}
-.birthday-mini:nth-child(3n){background:linear-gradient(135deg,#e6f5dd,#ffeed6)}
-.birthday-copy strong{color:#49334d}.tiny-pill{color:#953e62;background:rgba(255,255,255,.66)}
-.event-card{box-shadow:0 15px 32px rgba(102,73,105,.16),0 3px 9px rgba(103,68,104,.06);border-color:rgba(255,255,255,.98);border-radius:29px}
-.category-coffee{--cover1:#fbe3c5;--cover2:#dbb58c;--cover3:#ffeecc}
-.category-birthday{--cover1:#ffcfdf;--cover2:#e2a6cc;--cover3:#ffebba}
-.category-dining{--cover1:#e1f0c8;--cover2:#9dceaf;--cover3:#ffe4ba}
-.category-gathering{--cover1:#e9d2f7;--cover2:#cab3ea;--cover3:#ffdbdf}
-.category-party{--cover1:#f9cfec;--cover2:#d6a5e8;--cover3:#ffe4cc}
-.category-trip{--cover1:#d3f2f2;--cover2:#9fcadf;--cover3:#ffead1}
-.category-holiday{--cover1:#ddedc1;--cover2:#aad5be;--cover3:#f7ddc5}
-.category-other{--cover1:#dce8ff;--cover2:#b8c8f5;--cover3:#fbd9e7}
-.cover-illustrated{background:radial-gradient(circle at 98% 2%,rgba(255,255,255,.86),transparent 40%),radial-gradient(circle at -2% 99%,var(--cover3),transparent 55%),linear-gradient(120deg,var(--cover1),var(--cover2))}
-.cover-warm{background:radial-gradient(circle at 97% 10%,#fff9d9e8,transparent 47%),linear-gradient(130deg,var(--cover3),var(--cover1) 39%,var(--cover2))}
-.card-watermark{opacity:.23;right:-5px;top:8px;color:#7d3779;transform:rotate(-14deg)}
-.cover-soft .card-watermark{opacity:.08}.cover-warm .card-watermark{opacity:.21}
-.card-glow{background:rgba(255,255,255,.43);right:-32px;top:-60px;width:180px;height:180px}
-.category-badge{background:rgba(255,255,255,.78)!important;color:#69425e!important;box-shadow:0 2px 7px rgba(100,58,82,.07)}
-.date-tile{background:rgba(255,255,255,.88);box-shadow:0 10px 17px rgba(108,75,108,.11),inset 0 1px #fff}
-.event-card-bottom{border-top-color:rgba(255,255,255,.57)}
-.rsvp-chip.open{background:#fff1e5;color:#a44c63}.rsvp-chip.yes{background:#e3f5ea;color:#2f866b}
-.bottom-nav{background:rgba(255,252,251,.94);border:1px solid rgba(255,255,255,.92);box-shadow:0 -8px 30px rgba(94,70,96,.12),0 9px 22px rgba(105,76,113,.12)}
-.nav-item.create{background:linear-gradient(140deg,#e87f8a,#ba5d94)!important;color:white!important;box-shadow:0 9px 19px rgba(164,71,123,.27)}
-.nav-item.active{color:#b24f83}.nav-item.active:not(.create){background:#ffe7e9}
-.btn.primary,.solid-btn{background:linear-gradient(120deg,#ee8389,#bf5083)!important;border-color:transparent!important;box-shadow:0 11px 20px rgba(179,67,119,.20)!important;color:#fff!important}
-.app-version{text-align:center;color:#8e7186;font-size:12px;margin-top:18px}
-@media (prefers-reduced-motion:reduce){.event-card,.open-callout{transition:none}}
-/* Long labels and decorative gradients must not widen small mobile viewports. */
+
+
+/* ───── Familienzeit 0.9: ruhige, iOS-inspirierte Oberfläche ───── */
+:root{
+  --ink:#2b3948;--body:#596877;--muted:#818d99;--rose:#718eaa;--rose-dark:#4c7194;--violet:#748ca2;
+  --line:rgba(81,104,120,.105);--shadow:0 8px 26px rgba(60,72,82,.066),0 1px 4px rgba(60,72,82,.032);
+  color-scheme:light;
+}
 html,body{max-width:100%;overflow-x:clip}
-.event-copy,.callout-text,.birthday-copy{min-width:0}
-.event-copy strong,.callout-text small{overflow-wrap:anywhere}
+body{color:var(--ink);background:linear-gradient(150deg,#f9f8f5 0%,#f6f7f8 50%,#f8f7f3 100%);background-attachment:fixed}
+.app-shell{max-width:640px;padding:23px 19px 122px}
+.topbar{margin-bottom:26px;gap:10px}
+.brand-symbol{width:49px;height:49px;flex-basis:49px;border-radius:17px;background:#e6eef4;color:#567f9e;box-shadow:none;border:1px solid #dce7ed}
+.brand strong{font-size:23px;color:#283644;font-weight:790;letter-spacing:-.9px}
+.brand small{display:none}
+.header-tools{gap:10px}
+.icon-btn,.avatar-trigger{width:47px;height:47px;border-radius:17px;background:#fff;color:#667b8d;border:1px solid #e9ecef;box-shadow:0 3px 12px rgba(52,66,79,.035)}
+.avatar-trigger{background:transparent;border:0}
+.avatar-trigger .avatar{width:46px;height:46px}
+.avatar{box-shadow:none}
+.home-heading{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:5px 0 20px}
+.home-heading h1{margin:0;color:#243443;font-size:clamp(28px,7.5vw,34px);line-height:1.12;font-weight:780;letter-spacing:-1.18px}
+.birthday-shortcut{flex:0 0 53px;height:53px;width:53px;display:grid;place-items:center;position:relative;color:#ab8758;border:1px solid #eae4da;background:#faf4e9;border-radius:18px;box-shadow:0 3px 12px rgba(128,104,71,.05)}
+.birthday-shortcut.has-birthday{color:#9e7543;background:#f6ead4;border-color:#dfd0b3}
+.birthday-count{position:absolute;right:-5px;top:-6px;background:#567e97;color:#fff;min-width:22px;height:22px;border-radius:14px;border:2px solid #fff;display:grid;place-items:center;font-weight:800;font-size:11px}
+.pending-inline{width:100%;display:flex;align-items:center;gap:12px;text-align:left;padding:14px 15px;border-radius:20px;border:1px solid #d8e5ee;background:#e9f1f8;box-shadow:none;color:#365873;margin:0 0 18px;min-height:75px}
+.pending-symbol{flex:0 0 44px;width:44px;height:44px;display:grid;place-items:center;background:#d9e8f4;border-radius:15px}
+.pending-copy{min-width:0;flex:1;display:flex;flex-direction:column;gap:4px}
+.pending-copy strong{font-weight:780;font-size:17px;line-height:1.2}
+.pending-copy>span{font-weight:590;color:#54738d;font-size:14px}
+.pending-inline>svg{flex:none;color:#7595aa}
+.event-list.home-event-list{gap:14px}
+.event-card.event-card-simple{
+  --accent:#728da5;--tint:#eaf0f5;--card-bg:#fff;
+  background:var(--card-bg)!important;min-height:165px;width:100%;padding:18px;
+  border-radius:24px;border:1px solid #eceeef;box-shadow:var(--shadow);color:#2b3948;
+  transition:transform .12s,box-shadow .12s;
+}
+.event-card.event-card-simple::before{content:'';position:absolute;inset:0 auto 0 0;width:4px;background:var(--accent);opacity:.65;z-index:0}
+.event-card.event-card-simple:hover{transform:translateY(-1px);box-shadow:0 10px 30px rgba(60,72,82,.09)}
+.event-card-simple.category-coffee{--accent:#a7875c;--tint:#f1e9da;--card-bg:#fffefa}
+.event-card-simple.category-birthday{--accent:#b68b63;--tint:#f7eadc;--card-bg:#fffdfa}
+.event-card-simple.category-dining{--accent:#83a18b;--tint:#e8efe9;--card-bg:#fefffd}
+.event-card-simple.category-gathering{--accent:#7e98b4;--tint:#e7eef5;--card-bg:#fff}
+.event-card-simple.category-party{--accent:#9a8eae;--tint:#eeeaf4;--card-bg:#fff}
+.event-card-simple.category-trip{--accent:#79a5a9;--tint:#e5f1f0;--card-bg:#fdfefd}
+.event-card-simple.category-holiday{--accent:#8ca481;--tint:#eaf1e5;--card-bg:#fefffc}
+.event-card-simple.category-other{--accent:#8fa0ad;--tint:#eaf0f4;--card-bg:#fff}
+.event-card-simple .card-watermark{position:absolute;top:18px;right:8px;opacity:.035;color:var(--accent);transform:rotate(-10deg);z-index:0;pointer-events:none}
+.event-simple-layout{position:relative;z-index:1;display:flex;align-items:center;gap:15px;width:100%;min-width:0}
+.event-date-block{flex:0 0 72px;width:72px;min-height:95px;border-radius:19px;background:var(--tint);display:flex;flex-direction:column;align-items:center;justify-content:center;color:#445c6e;padding:7px 3px;gap:0}
+.event-date-month{font-size:13px;letter-spacing:.055em;font-weight:750;color:#657989;text-transform:uppercase}
+.event-date-block strong{font-size:39px;line-height:1.08;font-weight:770;letter-spacing:-1.5px;color:#2e4557}
+.event-date-weekday{font-size:13px;font-weight:600;color:#677888}
+.event-simple-body{display:flex;flex:1;flex-direction:column;align-items:flex-start;min-width:0}
+.event-simple-category{display:flex;align-items:center;gap:7px;color:#657a8b;font-size:14px;font-weight:680;line-height:1.25;min-width:0}
+.event-simple-category-icon{color:var(--accent);display:inline-flex;align-items:center}
+.event-simple-title{font-weight:760;font-size:clamp(19px,5.1vw,22px);line-height:1.18;letter-spacing:-.65px;margin:7px 0 9px;color:#2b3844;overflow-wrap:anywhere;text-wrap:pretty}
+.event-simple-time{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:15px;font-weight:580;color:#677786;line-height:1.3}
+.event-simple-time>svg{color:#83929d;flex:none}
+.event-simple-status{display:inline-flex;align-items:center;gap:5px;color:#54735b;background:#eaf3ea;font-size:13px;font-weight:690;border-radius:9px;padding:4px 8px;margin-top:11px}
+.event-simple-status.open{color:#8d704a;background:#fbf0dc}
+.event-simple-status.maybe{color:#72678f;background:#f1edfa}
+.event-simple-status.no{color:#875b5b;background:#f8eaea}
+.event-simple-status.status-host{color:#687f90;background:#eef2f6}
+.event-simple-chevron{display:grid;flex:0 0 21px;place-items:center;color:#acb4bd;align-self:center}
+.home-empty{padding:38px 20px;background:#fff;border:1px solid #e9ecee;border-radius:24px}
+.home-empty .btn{margin-top:4px}
+/* Consistent secondary views, bottom navigation and actions. */
+.bottom-nav{width:min(calc(100% - 28px),585px);padding:8px 10px;border-radius:24px;background:rgba(255,255,255,.96);border:1px solid #e8ebef;box-shadow:0 8px 33px rgba(58,76,89,.105);gap:6px}
+.nav-item{color:#84909b;font-size:12px;min-height:60px;border-radius:17px;font-weight:670;gap:4px}
+.nav-item.active:not(.create){background:#eaf1f6;color:#4c7599}
+.nav-item.create{background:#5d84a5!important;color:white!important;border:0!important;box-shadow:0 5px 16px rgba(85,120,154,.19)!important}
+.nav-item.create svg{stroke-width:2}
+.btn.primary,.solid-btn{background:#5b82a2!important;box-shadow:0 6px 17px rgba(82,116,151,.13)!important;color:white!important;border-color:#5b82a2!important}
+.btn.secondary,.account-link,.family-row{border-color:#e8ecef}
+.text-action{color:#547c99;font-size:15px}
+.page-head .eyebrow,.section-title .eyebrow{color:#8998a2}
+.page-head h1,.section-title h2,.month-heading h2{color:#293847}
+.section-title h2::after{content:none!important}
+.calendar-panel,.family-panel,.auth-panel,.detail-panel,.panel,.sheet{background:#fff}
+.sheet{background:#fdfdfc}
+.glass{background:#fff;border-color:#eaedef;box-shadow:var(--shadow)}
+.birth-dot{background:#bd996e}
+.event-dot{background:#678ba8}
+.birthday-overview{display:flex;flex-direction:column;gap:9px;padding-bottom:8px}
+.birthday-overview-row{width:100%;min-height:78px;border:1px solid #edf0f1;border-radius:19px;background:#fff;display:flex;align-items:center;gap:13px;text-align:left;padding:11px 13px;color:#2e3e4a}
+.birthday-overview-row .avatar{flex:none}
+.birthday-overview-copy{flex:1;display:flex;flex-direction:column;gap:5px;min-width:0}
+.birthday-overview-copy strong{font-size:17px;font-weight:750}
+.birthday-overview-copy small{font-size:14px;color:#677786}
+.birthday-overview-row>svg{flex:none;color:#aeb6bf}
+.birthday-none{background:#f7f8f8;border-radius:20px;padding:26px;text-align:center;color:#7b8b97;font-size:16px}
+.birthday-none svg{color:#ab8758}
+.birthday-manage{margin-top:12px;min-height:52px}
+.app-version{font-size:13px;color:#82909e;text-align:center;margin-top:18px}
+.invitation-code{background:#eff4f8;border-color:#89a7ba;color:#4e7390}
+@media(max-width:420px){
+ .app-shell{padding-left:17px;padding-right:17px}
+ .topbar{margin-bottom:22px}
+ .event-card.event-card-simple{padding:16px 13px;min-height:156px}
+ .event-simple-layout{gap:12px}
+ .event-date-block{flex-basis:68px;width:68px}
+ .event-simple-chevron{flex-basis:18px}
+ .event-simple-chevron svg{width:19px}
+}
+@media(max-width:360px){
+ .app-shell{padding-left:13px;padding-right:13px}
+ .home-heading h1{font-size:27px}
+ .brand strong{font-size:21px}
+ .event-card.event-card-simple{padding:14px 11px}
+ .event-simple-layout{gap:9px}
+ .event-date-block{flex-basis:60px;width:60px;min-height:90px}
+ .event-date-block strong{font-size:35px}
+ .event-simple-title{font-size:19px}
+ .event-simple-time{font-size:14px}
+ .event-simple-category{font-size:13px}
+ .event-simple-chevron{flex-basis:15px}
+ .event-simple-chevron svg{width:16px}
+}
+@media(prefers-reduced-motion:reduce){.event-card.event-card-simple{transition:none}}
+/* v0.9 finishing: consistently subdued secondary views and profile placeholders */
+.avatar.tone-0{--tone-a:#a3bfd1;--tone-b:#7597b2}
+.avatar.tone-1{--tone-a:#b6c4cf;--tone-b:#829bae}
+.avatar.tone-2{--tone-a:#c0d4b9;--tone-b:#95b5a2}
+.avatar.tone-3{--tone-a:#e1c5a6;--tone-b:#c69e82}
+.avatar.tone-4{--tone-a:#adc7d3;--tone-b:#87aabc}
+.avatar.tone-5{--tone-a:#dacba7;--tone-b:#baa276}
+.avatar.tone-6{--tone-a:#c4c0d7;--tone-b:#a49ebd}
+.calendar-day.selected,.calendar-day.today.selected{background:#5e86a6;color:#fff;box-shadow:0 4px 12px rgba(70,107,139,.14)}
+.calendar-day.today:not(.selected){background:#e8eff4;color:#557f9c}
+.month-controls button,.sheet-close{border-color:#e2e9ee;color:#667f93}
+.weekday-grid,.calendar-legend{color:#81919d}
+.family-intro{color:#6f899c}
+.family-note{color:#7c8994;font-size:14px}
+.profile-cover{background:linear-gradient(130deg,#e9f1f5,#f5f2eb);border:1px solid #e4ecf0}
+.profile-cover h3{color:#344958}
+.profile-birthday{border-color:#e7ecef;color:#997e59}
+.sheet-heading small{color:#7e91a0}
+.sheet-close{color:#758d9e}
+.field{color:#405364}
+.input{border-color:#e1e7ec;background:#fff;color:#293947}
+.input:focus{border-color:#7ea0bc;box-shadow:0 0 0 3px rgba(110,154,187,.11)}
+.category-radio input:checked+span{border-color:#8eacc1;background:#eaf2f7;color:#517b99;box-shadow:0 5px 12px rgba(70,110,146,.065)}
+.cover-radio input:checked+.cover-preview{border-color:#89a5b9;box-shadow:0 5px 12px rgba(73,107,133,.09)}
+.auth-art{background:linear-gradient(135deg,#e9f0f4,#edeae3);color:#63839b;box-shadow:0 12px 25px rgba(73,89,100,.075)}
+.empty-state{border-color:#dfe7ec;color:#718492}
+.notification-symbol{color:#6e8ba4;background:#eaf1f5}
+.notification-row.unread{background:#f2f7fa}
+.rsvp-btn.yes.selected{background:#e6f1ea;color:#4e805e;border-color:#a9cfb5}
+.rsvp-btn.maybe.selected{background:#eeeefa;color:#736e9d;border-color:#c7c6e2}
+.rsvp-btn.no.selected{background:#f7eeee;color:#9c6b6b;border-color:#e6c8c8}
+.category-coffee{--cover1:#f6eddd;--cover2:#ecdfcb;--cover3:#f9efe4}
+.category-birthday{--cover1:#f8eee1;--cover2:#e9dac4;--cover3:#fcf5e8}
+.category-dining{--cover1:#ebf2ea;--cover2:#dae9dc;--cover3:#f4f6ec}
+.category-gathering{--cover1:#e8eff5;--cover2:#d8e5ef;--cover3:#edf3f6}
+.category-party{--cover1:#f0eef6;--cover2:#e2deef;--cover3:#f6f4f8}
+.category-trip{--cover1:#e5f1f1;--cover2:#d0e8e8;--cover3:#f0f7f5}
+.category-holiday{--cover1:#edf2e5;--cover2:#dce6d3;--cover3:#f5f6ed}
+.category-other{--cover1:#edf1f4;--cover2:#dce6ee;--cover3:#f5f7f7}
+/* Preserve the chosen event cover style in details without the old pink saturation. */
+.detail-banner{color:#304556}
+.detail-banner p,.detail-banner>span:last-child{color:#637b8d}
+/* Keep the three selectable background styles, but make all of them discreet. */
+.event-card.event-card-simple.cover-soft{background:var(--card-bg)!important}
+.event-card.event-card-simple.cover-illustrated{background:linear-gradient(114deg,var(--card-bg) 0%,var(--card-bg) 73%,var(--tint) 100%)!important}
+.event-card.event-card-simple.cover-warm{background:linear-gradient(142deg,var(--tint) -22%,var(--card-bg) 63%)!important}
