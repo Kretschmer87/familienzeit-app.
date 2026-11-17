@@ -1,5 +1,5 @@
-/* Familienzeit 1.0 · Blaues Dashboard mit iOS-Feinschliff · mobile first */
-import * as API from './backend.js';
+/* Familienzeit 1.1 · iOS-Feinschliff, stabile Einladungen, sichere Entwürfe */
+import * as API from './backend.js?v=110';
 const $=q=>document.querySelector(q);
 const PEOPLE=['Martin','Stephanie','Fynn','Sonja','Mirco','Bela','Ella','Holger','Ivonne','Susanne'];
 const CATEGORIES=[
@@ -12,7 +12,7 @@ const CATEGORIES=[
  {id:'holiday',name:'Feiertag',icon:'tree'},
  {id:'other',name:'Sonstiges',icon:'calendar'}
 ];
-const VARIANTS=[{id:'soft',name:'Dezent'},{id:'illustrated',name:'Motiv'},{id:'warm',name:'Warm'}];
+const COLORS=[{id:'blue',name:'Blau'},{id:'green',name:'Grün'},{id:'yellow',name:'Gelb'},{id:'apricot',name:'Apricot'},{id:'rose',name:'Rosé'},{id:'lavender',name:'Lavendel'}];
 const path={
  heart:'<path d="M20.8 4.7a5.6 5.6 0 0 0-7.9 0L12 5.6l-.9-.9a5.6 5.6 0 0 0-7.9 7.9L12 21l8.8-8.4a5.6 5.6 0 0 0 0-7.9Z"/>',
  calendar:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 2v6M17 2v6M3 10h18"/>',
@@ -59,10 +59,12 @@ function nextBirthday(person){if(!person?.birth_date)return null;const t=localDa
 function upcomingBirthdays(){return data.people.filter(p=>p.birth_date).map(p=>({...p,next:nextBirthday(p)})).sort((a,b)=>a.next.days-b.next.days);}
 const typeName=id=>CATEGORIES.find(c=>c.id===id)?.name||'Sonstiges';
 const typeIcon=id=>CATEGORIES.find(c=>c.id===id)?.icon||'calendar';
-const bgName=id=>VARIANTS.find(v=>v.id===id)?.name||'Motiv';
+const colorName=id=>COLORS.find(v=>v.id===id)?.name||'Blau';
 function toast(msg){const el=$('#toast-root');el.textContent=msg;el.classList.add('show');clearTimeout(toast.timer);toast.timer=setTimeout(()=>{el.classList.remove('show');},4400);}
 let homeFilter='all';
 let page='home',modal=null,user=null,mode='loading',lastError='',loadingAction=false,month=new Date(),selectedDay=localDate(),birthdayDraft=null;
+let installEvent=null;const invitationFromUrl=new URLSearchParams(location.search).get('invite')||'';
+let inviteCode=/^[0-9a-f]{24}$/i.test(invitationFromUrl)?invitationFromUrl.toLowerCase():'';let invitePerson='',draftSaveTimer=null;
 let unsubscribe=null,refreshTimeout=null,avatarCache=new Map(),peopleById=new Map(),accountsByUser=new Map();
 let data={people:[],person_managers:[],events:[],event_invites:[],rsvps:[],rsvp_attendees:[],comments:[],alternatives:[],notifications:[]};
 const profileByUser=()=>data.people.find(p=>p.auth_user_id===user?.id)||null;
@@ -89,7 +91,7 @@ function unread(){return data.notifications.filter(n=>!n.read_at);}
 async function fetchAvatars(){await Promise.all(data.people.filter(p=>p.avatar_path).map(async p=>{const c=avatarCache.get(p.id);if(c?.path===p.avatar_path&&c?.until>Date.now())return;try{const url=await API.avatarUrl(p.avatar_path);avatarCache.set(p.id,{url,path:p.avatar_path,until:Date.now()+45*60*1000});}catch(err){console.warn('Profilbild nicht verfügbar:',err);}}));}
 async function fetchData(){const oldIds=new Set(data.notifications.map(n=>n.id));const oldReady=mode==='ready';data=await API.readAll();peopleById=new Map(data.people.map(p=>[p.id,p]));accountsByUser=new Map(data.people.filter(p=>p.auth_user_id).map(p=>[p.auth_user_id,p]));if(!me()){mode='unlinked';render();return;}await fetchAvatars();mode='ready';render();if(oldReady)await notifyWhileOpen(data.notifications.filter(n=>!oldIds.has(n.id)));else await notifyWhileOpen(data.notifications.filter(n=>Date.now()-new Date(n.created_at).getTime()<120000));}
 function scheduleRefresh(){clearTimeout(refreshTimeout);refreshTimeout=setTimeout(()=>{if(!loadingAction&&user)fetchData().catch(e=>{console.warn('Aktualisierung fehlgeschlagen',e);});},430);}
-async function boot(){mode='loading';render();try{await API.connect();user=await API.getUser();if(!user){mode='login';render();return;}await fetchData();unsubscribe?.();unsubscribe=API.subscribe(scheduleRefresh);setInterval(()=>{if(user&&document.visibilityState==='visible')scheduleRefresh();},45000);window.addEventListener('focus',scheduleRefresh);await openDeeplink();}catch(e){console.error(e);lastError=e.message||'Verbindungsfehler';mode='error';render();}}
+async function boot(){mode='loading';render();try{await API.connect();user=await API.getUser();if(!user){mode=inviteCode?'register':'login';render();if(inviteCode)loadInvitePreview();return;}await fetchData();unsubscribe?.();unsubscribe=API.subscribe(scheduleRefresh);setInterval(()=>{if(user&&document.visibilityState==='visible')scheduleRefresh();},45000);window.addEventListener('focus',scheduleRefresh);await openDeeplink();}catch(e){console.error(e);lastError=e.message||'Verbindungsfehler';mode='error';render();}}
 async function work(op,success,after){if(loadingAction)return;loadingAction=true;try{const result=await op();if(user)await fetchData();if(after)await after(result);if(success)toast(success);return result;}catch(err){console.error(err);toast('Nicht gespeichert: '+(err?.message||'Unbekannter Fehler'));}finally{loadingAction=false;}}
 async function openDeeplink(){const params=new URLSearchParams(location.search),ev=params.get('event'),p=params.get('person');if(ev&&data.events.some(e=>e.id===ev))showModal('event',ev);else if(p&&peopleById.has(p))showModal('person',p);if(ev||p)history.replaceState(null,'',location.pathname);}
 
@@ -99,13 +101,14 @@ function layout(){
 }
 function authView(){
  const busy=mode==='loading';const unlinked=mode==='unlinked';
- const label=mode==='error'?'Verbindung unterbrochen':unlinked?'Noch keine Freischaltung':busy?'Familienzeit lädt …':'Schön, dass du da bist!';
- return `<div class="app-shell"><header class="topbar"><div class="brand"><div class="brand-symbol">${icon('heart',25)}</div><div><strong>Familienzeit</strong><small>Zusammen ist schöner</small></div></div></header><main class="auth-page"><div class="auth-art">${icon('users',55)}<span class="auth-spark s1">${icon('sparkle',24)}</span><span class="auth-spark s2">${icon('heart',19)}</span></div><section class="auth-panel glass"><p class="eyebrow">UNSER FAMILIENKALENDER</p><h1>${safe(label)}</h1><p class="auth-desc">${unlinked?'Dein Konto ist angemeldet, aber noch keiner Person zugeordnet. Bitte den Verwalter der Familien-App kontaktieren.':busy?'Die Verbindung zu eurem Familienkalender wird aufgebaut.':mode==='error'?safe(lastError):'Hier werden aus Nachrichten echte Verabredungen. Melde dich einmal an – danach bleibst du normalerweise angemeldet.'}</p>
- ${mode==='login'?`<form id="login-form" class="stack" autocomplete="on"><label class="field">E-Mail-Adresse<input class="input" type="email" name="email" autocomplete="username" placeholder="Deine E-Mail-Adresse" required></label><label class="field">Passwort<input class="input" type="password" name="password" autocomplete="current-password" placeholder="Dein Passwort" required></label><button class="btn primary wide" type="submit">Anmelden ${icon('arrow',20)}</button><div class="auth-tip">${icon('shield',18)} Deine Zugangsdaten wurden dir beim Einrichten deines Familienkontos vergeben. Nach der ersten Anmeldung erfolgt die Erkennung automatisch.</div></form>`:''}
- ${mode==='unlinked'?`<form id="claim-form" class="stack"><div class="auth-tip">${icon('info',20)} Angemeldet als ${safe(user?.email||'Unbekannt')}. Dein Familienverwalter gibt dir einen einmaligen Einladungscode.</div><label class="field">Einladungscode<input class="input" name="code" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Code hier einfügen" required></label><button class="btn primary wide" type="submit">${icon('check',19)} Familienprofil aktivieren</button><button class="btn secondary wide" type="button" data-action="logout">Abmelden</button></form>`:''}
+ const label=mode==='error'?'Verbindung unterbrochen':unlinked?'Noch keine Freischaltung':busy?'Familienzeit lädt …':mode==='register'?'Dein Familienzugang':'Schön, dass du da bist!';
+ return `<div class="app-shell"><header class="topbar"><div class="brand"><div class="brand-symbol">${icon('heart',25)}</div><div><strong>Familienzeit</strong><small>Zusammen ist schöner</small></div></div></header><main class="auth-page"><div class="auth-art">${icon('users',55)}<span class="auth-spark s1">${icon('sparkle',24)}</span><span class="auth-spark s2">${icon('heart',19)}</span></div><section class="auth-panel glass"><p class="eyebrow">UNSER FAMILIENKALENDER</p><h1>${safe(label)}</h1><p class="auth-desc">${unlinked?'Dein Konto ist angemeldet, aber noch keiner Person zugeordnet. Bitte den Verwalter der Familien-App kontaktieren.':busy?'Die Verbindung zu eurem Familienkalender wird aufgebaut.':mode==='error'?safe(lastError):mode==='register'?'Einmalig E-Mail-Adresse und Passwort festlegen. Danach landest du direkt im gemeinsamen Familienkalender.':'Melde dich an. Du bleibst normalerweise angemeldet – auf jedem Gerät mit deinem eigenen Zugang.'}</p>
+ ${mode==='login'?`<form id="login-form" class="stack" autocomplete="on"><label class="field">E-Mail-Adresse<input class="input" type="email" name="email" autocomplete="username" placeholder="Deine E-Mail-Adresse" required></label><label class="field">Passwort<input class="input" type="password" name="password" autocomplete="current-password" placeholder="Dein Passwort" required></label><button class="btn primary wide" type="submit">Anmelden ${icon('arrow',20)}</button><button type="button" class="btn secondary wide" data-action="begin-invite">Ich habe eine Familieneinladung</button><div class="auth-tip">${icon('shield',18)} Deine Zugangsdaten wurden dir beim Einrichten deines Familienkontos vergeben. Nach der ersten Anmeldung erfolgt die Erkennung automatisch.</div></form>`:''}
+ ${mode==='register'?`<form id="register-form" class="stack" autocomplete="on"><div class="auth-tip">${icon('users',20)} <span id="invite-preview">${invitePerson?`Dein Profil: <b>${safe(invitePerson)}</b>`:'Deine persönliche Einladung wird geprüft …'}</span></div><label class="field">Einladungscode<input class="input" name="code" value="${safe(inviteCode)}" autocomplete="off" autocapitalize="off" spellcheck="false" required></label><label class="field">Deine E-Mail-Adresse<input class="input" type="email" name="email" autocomplete="email" required placeholder="name@beispiel.de"></label><label class="field">Eigenes Passwort (mindestens 10 Zeichen)<input class="input" type="password" minlength="10" name="password" autocomplete="new-password" required placeholder="Dein Passwort"></label><button class="btn primary wide" type="submit">Zugang erstellen ${icon('arrow',20)}</button><p class="form-help">Der Einladungscode ordnet dich automatisch deiner Person und demselben Familienkalender zu. Gib ihn nicht an andere weiter.</p><button class="btn secondary wide" type="button" data-action="back-to-login">Ich habe schon ein Konto</button></form>`:''}
+ ${mode==='unlinked'?`<form id="claim-form" class="stack"><div class="auth-tip">${icon('info',20)} Angemeldet als ${safe(user?.email||'Unbekannt')}. Dein Familienverwalter gibt dir einen einmaligen Einladungscode.</div><label class="field">Einladungscode<input class="input" name="code" autocomplete="off" autocapitalize="off" spellcheck="false" value="${safe(inviteCode)}" placeholder="Code hier einfügen" required></label><button class="btn primary wide" type="submit">${icon('check',19)} Familienprofil aktivieren</button><button class="btn secondary wide" type="button" data-action="logout">Abmelden</button></form>`:''}
  ${mode==='error'?`<button class="btn primary wide" data-action="retry">Erneut verbinden</button>`:''}</section></main></div>`;
 }
-function render(){const app=$('#app');app.innerHTML=mode==='ready'?layout():authView();if(modal&&mode==='ready')renderModal();else if(mode!=='ready')$('#modal-root').innerHTML='';}
+function render(){const app=$('#app');app.innerHTML=mode==='ready'?layout():authView();if(modal&&mode==='ready'){if(!(modal.type==='new'&&$('#new-event-form')))renderModal();}else if(mode!=='ready')$('#modal-root').innerHTML='';}
 function greeting(){const h=new Date().getHours();return h<10?'Guten Morgen':h<18?'Hallo':'Guten Abend';}
 function homeView(){
  const up=upcomingEvents(),pending=pendingEvents(),births=upcomingBirthdays();
@@ -113,6 +116,7 @@ function homeView(){
  const own=me(),name=safe(own?.display_name||'Familie');
  const visible=homeFilter==='mine'?up.filter(e=>eventInvites(e.id).includes(own.id)):homeFilter==='pending'?pending:up;
  const currentFilter=homeFilter==='mine'?'Meine':homeFilter==='pending'?'Offene':'Alle';
+ const installHint=!isInstalled()&&localStorage.getItem('fz11-show-install')==='yes';
  return `<section class="dashboard-welcome" aria-label="Dein Familienüberblick">
    <span class="welcome-sheen" aria-hidden="true"></span>
    <div class="welcome-content">
@@ -122,6 +126,7 @@ function homeView(){
     <button type="button" class="birthday-quick" data-action="birthdays" title="Geburtstage ansehen" aria-label="Geburtstage ansehen${imminent?`, ${imminent} bald`:''}">${icon('gift',23)}${imminent?`<i aria-hidden="true">${imminent}</i>`:''}</button></div>
    </div><div class="welcome-sculpt" aria-hidden="true"><span class="sculpt-glow"></span>${icon('heart',75)}</div>
  </section>
+ ${installHint?`<div class="install-hint">${icon('sparkle',20)} <span>Familienzeit wie eine App nutzen</span><button data-action="install-guide">Installieren</button><button class="install-hint-dismiss" aria-label="Hinweis ausblenden" data-action="install-dismiss">${icon('x',17)}</button></div>`:''}
  ${pending.length?`<button class="pending-action" type="button" data-action="pending"><span class="pending-action-icon">${icon('bell',25)}</span><span class="pending-action-copy"><strong>${pending.length===1?'Eine Rückmeldung offen':`${pending.length} Rückmeldungen offen`}</strong><small>Tippen und antworten</small></span>${icon('chevron',24)}</button>`:''}
  <div class="dashboard-section-head"><div><h2>Nächste Termine</h2><p>Unsere gemeinsamen Pläne</p></div><button class="dashboard-filter" type="button" data-action="home-filter" aria-label="Termine filtern, aktuell ${currentFilter}">${currentFilter} ${icon('down',18)}</button></div>
  <section class="event-list dashboard-events" aria-label="Anstehende Familientermine">
@@ -142,7 +147,7 @@ function eventCard(e){
  const statusClass=r?.status||'open',statusIcon=r?.status==='yes'?'check':r?.status==='no'?'x':r?.status==='maybe'?'info':'clock';
  const comments=data.comments.filter(c=>c.event_id===e.id).length;
  const attendees=guestsTotal(e);
- return `<button class="event-card family-event-card ${themeClass(e)}" type="button" data-action="event" data-id="${e.id}" aria-label="${safe(e.title)}, ${safe(fmt(e.event_date))}, ${safe(String(e.event_time).slice(0,5))} Uhr, Details öffnen">
+ return `<button class="event-card family-event-card ${themeClass(e)} card-color-${safe(e.card_color||'blue')}" type="button" data-action="event" data-id="${e.id}" aria-label="${safe(e.title)}, ${safe(fmt(e.event_date))}, ${safe(String(e.event_time).slice(0,5))} Uhr, Details öffnen">
   <span class="family-event-watermark" aria-hidden="true">${icon(typeIcon(e.kind),110)}</span>
   <span class="family-event-main">
    <span class="family-date-tile"><span class="family-date-month">${monthShort(e.event_date)}</span><strong>${+e.event_date.slice(8,10)}</strong><span class="family-date-weekday">${weekday(e.event_date)}</span><span class="family-date-symbol" aria-hidden="true">${icon(typeIcon(e.kind),21)}</span></span>
@@ -174,11 +179,11 @@ function familyView(){
 }
 
 function modalFrame(title,body,eyebrow='FAMILIENZEIT'){
- return `<div class="overlay" data-action="close-backdrop"><div class="sheet" role="dialog" aria-modal="true" aria-label="${safe(title)}"><div class="sheet-grab"></div><div class="sheet-heading"><div><small>${safe(eyebrow)}</small><h2>${safe(title)}</h2></div><button class="sheet-close" type="button" data-action="close" aria-label="Schließen">${icon('x',24)}</button></div><div class="sheet-content">${body}</div></div></div>`;
+ return `<div class="overlay"><div class="sheet" role="dialog" aria-modal="true" aria-label="${safe(title)}"><div class="sheet-grab"></div><div class="sheet-heading"><div><small>${safe(eyebrow)}</small><h2>${safe(title)}</h2></div><button class="sheet-close" type="button" data-action="close" aria-label="Schließen">${icon('x',24)}</button></div><div class="sheet-content">${body}</div></div></div>`;
 }
-function showModal(type,id=null){modal={type,id};renderModal();document.body.classList.add('modal-open');}
-function closeModal(){modal=null;$('#modal-root').innerHTML='';document.body.classList.remove('modal-open');}
-function renderModal(){if(!modal)return;let title='',body='',eyebrow='FAMILIENZEIT';const {type,id}=modal;
+function showModal(type,id=null){if(modal?.type==='new')storeEventDraft();modal={type,id};renderModal();document.body.classList.add('modal-open');}
+function closeModal(){if(modal?.type==='new')storeEventDraft();modal=null;$('#modal-root').innerHTML='';document.body.classList.remove('modal-open');}
+function renderModal(){if(!modal)return;if(modal.type==='new')storeEventDraft();let title='',body='',eyebrow='FAMILIENZEIT';const {type,id}=modal;
  if(type==='event'){const e=data.events.find(e=>e.id===id);if(!e){closeModal();return;}title='Einladung';eyebrow='TERMINDETAILS';body=eventDetail(e);}
  else if(type==='new'){title=birthdayDraft?'Geburtstag planen':'Neuen Termin planen';eyebrow='WIR SEHEN UNS';body=newEventForm();}
  else if(type==='edit'){title='Termin bearbeiten';body=editEventForm(data.events.find(e=>e.id===id));}
@@ -189,11 +194,12 @@ function renderModal(){if(!modal)return;let title='',body='',eyebrow='FAMILIENZE
  else if(type==='notifications'){title='Mitteilungen';eyebrow='NEUES AUS DER FAMILIE';body=notificationsView();}
  else if(type==='pending'){title='Noch zu beantworten';eyebrow='DEINE OFFENEN EINLADUNGEN';body=pendingView();}
  else if(type==='birthdays'){title='Geburtstage';eyebrow='UNSERE FAMILIE';body=birthdayOverview();}
- else if(type==='invite'){const p=person(id);title='Einladung für '+p.display_name;eyebrow='EINFACHER ERSTZUGANG';body=`<p class="form-help">Gib ${safe(p.display_name)} diesen einmaligen Code. Er bleibt 14 Tage gültig und verknüpft das Konto automatisch mit dem richtigen Familienprofil.</p><div class="invitation-code">${safe(modal.code||'')}</div><button class="btn primary wide" data-action="copy-invite">${icon('check',19)} Code kopieren</button><p class="form-help notice">Wichtig: ${safe(p.display_name)} benötigt vorher ein persönliches Anmeldekonto mit E-Mail und Passwort. Sobald der Einladungs-E-Mail-Versand eingerichtet ist, geht auch das automatisch.</p>`;}
- $('#modal-root').innerHTML=modalFrame(title,body,eyebrow);
+ else if(type==='invite'){const p=person(id);title='Einladung für '+p.display_name;eyebrow='EINFACHER ERSTZUGANG';const link=invitationLink(modal.code||'');body=`<p class="form-help">${safe(p.display_name)} öffnet den Link und richtet das eigene Passwort ein. Das Profil wird automatisch mit eurem gemeinsamen Kalender verbunden.</p><div class="invitation-code">${safe(link)}</div><button class="btn primary wide" data-action="share-invite">${icon('send',19)} Einladung teilen</button><button class="btn secondary wide" data-action="copy-invite">${icon('check',19)} Link kopieren</button><p class="form-help notice">Der Link gilt 14 Tage und lässt sich nur einmal verwenden. Bitte nur der vorgesehenen Person schicken.</p>`;}
+ else if(type==='install'){title='Familienzeit installieren';eyebrow='AUF DEINEM HANDY';body=installGuide();}
+ $('#modal-root').innerHTML=modalFrame(title,body,eyebrow);if(type==='new')restoreEventDraft();
 }
-function backgroundPicker(selected='illustrated',category='gathering'){
- return `<fieldset class="field-group background-field"><legend>Hintergrund auswählen</legend><p class="form-help">Drei dezente Stile – das Motiv passt sich dem Anlass an.</p><div class="cover-options">${VARIANTS.map(v=>`<label class="cover-radio"><input type="radio" name="cover_style" value="${v.id}" ${selected===v.id?'checked':''}><span class="cover-preview category-${category} cover-${v.id}"><span class="preview-art">${icon(typeIcon(category),34)}</span><b>${safe(v.name)}</b></span></label>`).join('')}</div></fieldset>`;
+function colorPicker(selected='blue'){
+ return `<fieldset class="field-group color-field"><legend>Farbe auswählen</legend><p class="form-help">Deine Farbe wird später auch auf der Terminkarte angezeigt.</p><div class="color-options">${COLORS.map(v=>`<label class="color-option"><input type="radio" name="card_color" value="${v.id}" ${selected===v.id?'checked':''}><span class="color-option-face"><i class="color-dot swatch-${v.id}"></i><b>${safe(v.name)}</b></span></label>`).join('')}</div></fieldset>`;
 }
 function categoryPicker(selected='gathering'){
  return `<fieldset class="field-group"><legend>Was habt ihr vor?</legend><div class="category-grid">${CATEGORIES.map(c=>`<label class="category-radio"><input type="radio" name="kind" value="${c.id}" ${selected===c.id?'checked':''} required><span>${icon(c.icon,27)}<b>${safe(c.name)}</b></span></label>`).join('')}</div></fieldset>`;
@@ -204,7 +210,7 @@ function newEventForm(){
  const d=new Date();d.setDate(d.getDate()+14);const defaultDate=draft?.date||iso(d.getFullYear(),d.getMonth()+1,d.getDate()),title=draft?`Geburtstag von ${personForBirthday.display_name}`:'',kind=draft?'birthday':'gathering';
  const deadlineDefault=defaultDate<localDate()?localDate():localDate();
  return `<form id="new-event-form" class="stack"><p class="form-help">Du erstellst eine Einladung für alle ausgewählten Personen. Du selbst bist automatisch dabei.</p>
- ${categoryPicker(kind)}${backgroundPicker(draft?'warm':'illustrated',kind)}
+ <p class="draft-safe-note">${icon('check',17)} Dein Entwurf wird automatisch gespeichert.</p>${categoryPicker(kind)}${colorPicker(draft?'apricot':'blue')}
  <label class="field">Wie heißt euer Treffen?<input class="input" name="title" maxlength="120" placeholder="z. B. Familienfrühstück" value="${safe(title)}" required></label>
  <div class="two-fields"><label class="field">Datum<input class="input" type="date" name="date" value="${defaultDate}" min="${localDate()}" required></label><label class="field">Uhrzeit<input class="input" type="time" name="time" value="15:00" required></label></div>
  <label class="field">Einladungssatz <small>(optional)</small><input class="input" name="teaser" maxlength="90" placeholder="Ein kleiner Vorgeschmack …" value="${draft?'Wir freuen uns auf einen schönen Tag zusammen!':''}"></label>
@@ -221,7 +227,7 @@ function eventDetail(e){
  const alternatives=data.alternatives.filter(a=>a.event_id===e.id);
  const yourGuests=ownResponse?.status==='yes'?guestsFor(e.id,user.id,e.revision):[];
  const missing=eventInvites(e.id).map(id=>person(id)).filter(p=>p.can_login&&p.auth_user_id&&!responseFor(e.id,p.id));
- return `<div class="detail-banner ${themeClass(e)}"><span class="detail-banner-art">${icon(typeIcon(e.kind),94)}</span><p>${icon(typeIcon(e.kind),20)} ${safe(typeName(e.kind))}</p><h3>${safe(e.title)}</h3><span>${safe(fmt(e.event_date,{weekday:'long',day:'numeric',month:'long',year:'numeric'}))}</span></div>
+ return `<div class="detail-banner ${themeClass(e)} card-color-${safe(e.card_color||'blue')}"><span class="detail-banner-art">${icon(typeIcon(e.kind),94)}</span><p>${icon(typeIcon(e.kind),20)} ${safe(typeName(e.kind))}</p><h3>${safe(e.title)}</h3><span>${safe(fmt(e.event_date,{weekday:'long',day:'numeric',month:'long',year:'numeric'}))}</span></div>
  ${e.status==='cancelled'?`<div class="cancelled-warning">${icon('x',23)} Dieser Termin wurde abgesagt.</div>`:''}
  ${e.teaser?`<p class="detail-teaser">${safe(e.teaser)}</p>`:''}<div class="detail-facts">
  <div>${icon('clock',21)} <span><b>${safe(String(e.event_time).slice(0,5))} Uhr</b> · ${safe(fmt(e.event_date))}</span></div>
@@ -240,7 +246,7 @@ function eventDetail(e){
  <section class="detail-panel"><h3>${icon('message',21)} Kommentare · ${notes.length}</h3>${notes.length?notes.map(c=>`<div class="comment-row">${avatar(accountsByUser.get(c.author_user_id)||{id:'',display_name:'?'},'sm')}<div><b>${safe(accountsByUser.get(c.author_user_id)?.display_name||'Familie')}</b><small>${new Date(c.created_at).toLocaleDateString('de-DE')}</small><p>${safe(c.body)}</p></div></div>`).join(''):'<p class="form-help">Noch keine Kommentare.</p>'}${e.status==='active'&&invited?`<form id="comment-form" data-id="${e.id}" class="stack"><label class="field">Nachricht an die Familie<textarea class="input" name="message" rows="2" maxlength="2000" placeholder="Schreibe etwas ..." required></textarea></label><button class="btn primary" type="submit">${icon('send',18)} Kommentar senden</button></form>`:''}</section>`;
 }
 function editEventForm(e){if(!e)return '';
- return `<form id="edit-event-form" data-id="${e.id}" class="stack"><p class="form-help">Den Zeitpunkt änderst du über „Verschieben“. Alle werden über wichtige Änderungen informiert.</p>${categoryPicker(e.kind)}${backgroundPicker(e.cover_style,e.kind)}
+ return `<form id="edit-event-form" data-id="${e.id}" class="stack"><p class="form-help">Den Zeitpunkt änderst du über „Verschieben“. Alle werden über wichtige Änderungen informiert.</p>${categoryPicker(e.kind)}${colorPicker(e.card_color||'blue')}
  <label class="field">Titel<input class="input" name="title" maxlength="120" required value="${safe(e.title)}"></label>
  <label class="field">Einladungssatz<input class="input" name="teaser" maxlength="90" value="${safe(e.teaser)}"></label>
  <label class="field">Ort / Adresse<input class="input" name="location" maxlength="240" value="${safe(e.location_text)}"></label>
@@ -258,7 +264,7 @@ function personDetail(p){
  ${p.birth_date?`<button class="btn primary wide" data-action="birthday-event" data-id="${p.id}">${icon('plus',20)} Einladung zum Geburtstag erstellen</button>`:''}
  ${canEdit?`<section class="detail-panel"><h3>${icon('edit',20)} Profil bearbeiten</h3><form id="profile-form" data-id="${p.id}" class="stack"><label class="field">Geburtstag<input class="input" type="date" name="birthdate" max="${localDate()}" value="${p.birth_date||''}"></label><p class="form-help">Du kannst einen Geburtstag jederzeit nachtragen oder ändern.</p><label class="field">Profilbild <small>(optional)</small><input class="input file-input" type="file" name="avatar" accept="image/jpeg,image/png,image/webp"></label><p class="form-help">Das Bild wird auf eine quadratische Ansicht zugeschnitten und privat gespeichert. Maximal 8 MB Originalgröße.</p><button class="btn primary wide" type="submit">${icon('check',19)} Profil speichern</button></form></section>`:''}`;
 }
-function accountView(){const own=me(),supported=('Notification' in window);return `<div class="account-profile">${avatar(own,'xl')}<div><h3>${safe(own.display_name)}</h3><p>${safe(user?.email||'Persönlich angemeldet')}</p></div></div><div class="account-section"><button class="account-link" data-action="person" data-id="${own.id}">${icon('camera',23)} <span>Mein Profil & Bild</span>${icon('chevron',20)}</button><button class="account-link" data-action="enable-notifications">${icon('bell',23)} <span>Geräte-Benachrichtigungen <small>${supported?Notification.permission==='granted'?'Für die geöffnete App aktiviert':'Aktivieren':'In diesem Browser nicht verfügbar'}</small></span>${icon('chevron',20)}</button></div><p class="form-help notice"><b>Wichtig:</b> Terminerinnerungen werden bereits serverseitig in der App gespeichert. Geräte-Benachrichtigungen funktionieren derzeit, wenn die App geöffnet ist. Push bei geschlossener App folgt noch.</p><p class="app-version">Familienzeit Version 1.0 · Blau & modern</p><button class="btn secondary wide" data-action="logout">${icon('logout',19)} Abmelden</button>`;}
+function accountView(){const own=me(),supported=('Notification' in window);return `<div class="account-profile">${avatar(own,'xl')}<div><h3>${safe(own.display_name)}</h3><p>${safe(user?.email||'Persönlich angemeldet')}</p></div></div><div class="account-section"><button class="account-link" data-action="person" data-id="${own.id}">${icon('camera',23)} <span>Mein Profil & Bild</span>${icon('chevron',20)}</button><button class="account-link" data-action="install-guide">${icon('plus',23)} <span>App auf diesem Gerät installieren <small>Android & iPhone – direkt auf den Startbildschirm</small></span>${icon('chevron',20)}</button><button class="account-link" data-action="enable-notifications">${icon('bell',23)} <span>Geräte-Benachrichtigungen <small>${supported?Notification.permission==='granted'?'Für die geöffnete App aktiviert':'Aktivieren':'In diesem Browser nicht verfügbar'}</small></span>${icon('chevron',20)}</button></div><p class="form-help notice"><b>Wichtig:</b> Terminerinnerungen werden bereits serverseitig in der App gespeichert. Geräte-Benachrichtigungen funktionieren derzeit, wenn die App geöffnet ist. Push bei geschlossener App folgt noch.</p><p class="group-proof">${icon('users',17)} Gemeinsamer Familienkalender · ${data.people.length} Personen</p><p class="app-version">Familienzeit Version 1.1</p><button class="btn secondary wide" data-action="logout">${icon('logout',19)} Abmelden</button>`;}
 function notificationsView(){return `${data.notifications.length?data.notifications.map(n=>`<button class="notification-row ${!n.read_at?'unread':''}" data-action="notification-open" data-id="${n.id}"><span class="notification-symbol">${icon(n.related_person_id?'gift':n.kind==='nudge'?'bell':'calendar',24)}</span><span><strong>${safe(n.related_person_id?'Geburtstag':n.kind==='invited'?'Neue Einladung':n.kind==='rescheduled'?'Termin verschoben':n.kind==='cancelled'?'Termin abgesagt':n.kind==='deadline_reminder'?'Antwortfrist läuft ab':n.kind==='nudge'?'Erinnerung':'Familien-Nachricht')}</strong><p>${safe(n.message)}</p><small>${new Date(n.created_at).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'})}</small></span>${icon('chevron',18)}</button>`).join(''):'<div class="empty-state compact">Hier erscheinen eure Einladungen, Erinnerungen und Änderungen.</div>'}<p class="form-help notice">Die App prüft jeden Morgen, welche Geburtstage und Antwortfristen anstehen.</p>`;}
 function pendingView(){const list=pendingEvents();return `<p class="form-help">${list.length?'Diese Einladungen warten noch auf deine Antwort. Wähle einen Termin, um direkt zuzusagen oder abzusagen.':'Du hast aktuell alle Einladungen beantwortet.'}</p><div class="event-list">${list.map(eventCard).join('')}</div>`;}
 
@@ -268,13 +274,13 @@ function formValidDates(date,deadline){if(!date||!deadline||deadline>date){toast
 function invitedFromForm(form){const ids=[...form.querySelectorAll('input[name="invitees"]:checked')].map(x=>x.value);ids.push(me().id);return [...new Set(ids)];}
 async function saveNewEvent(form){const {f,date,time,deadline}=formValues(form);if(!formValidDates(date,deadline))return;
  const title=String(f.get('title')||'').trim(),teaser=String(f.get('teaser')||'').trim();if(!title||teaser.length>90){toast('Titel oder Einladungssatz überprüfen.');return;}
- const values={p_title:title,p_kind:String(f.get('kind')),p_teaser:teaser,p_event_date:date,p_event_time:time,p_deadline:deadline,p_location:String(f.get('location')||'').trim(),p_description:String(f.get('description')||'').trim(),p_invitees:invitedFromForm(form),p_maps_url:'',p_cover_style:String(f.get('cover_style')||'illustrated')};
- await work(()=>API.createEvent(values),'Einladung erstellt.',async id=>{birthdayDraft=null;showModal('event',id);});
+ const values={p_title:title,p_kind:String(f.get('kind')),p_teaser:teaser,p_event_date:date,p_event_time:time,p_deadline:deadline,p_location:String(f.get('location')||'').trim(),p_description:String(f.get('description')||'').trim(),p_invitees:invitedFromForm(form),p_maps_url:'',p_cover_style:'illustrated',p_card_color:String(f.get('card_color')||'blue')};
+ await work(()=>API.createEvent(values),'Einladung erstellt.',async id=>{clearEventDraft();birthdayDraft=null;showModal('event',id);});
 }
 async function saveExistingEvent(form){const id=form.dataset.id,e=data.events.find(x=>x.id===id);if(!e||e.creator_user_id!==user.id)return;
  const f=new FormData(form),deadline=String(f.get('deadline'));if(deadline>e.event_date){toast('Die Antwortfrist liegt nach dem Termin.');return;}
  const invited=invitedFromForm(form),old=eventInvites(id),add=invited.filter(x=>!old.includes(x)),remove=old.filter(x=>!invited.includes(x));
- const fields={title:String(f.get('title')).trim(),teaser:String(f.get('teaser')).trim(),kind:String(f.get('kind')),cover_style:String(f.get('cover_style')),location_text:String(f.get('location')).trim(),description:String(f.get('description')).trim(),response_deadline:deadline};
+ const fields={title:String(f.get('title')).trim(),teaser:String(f.get('teaser')).trim(),kind:String(f.get('kind')),card_color:String(f.get('card_color')||'blue'),location_text:String(f.get('location')).trim(),description:String(f.get('description')).trim(),response_deadline:deadline};
  await work(async()=>{await API.updateEvent(id,fields);await API.replaceInvitees(id,add,remove);},'Einladung aktualisiert.',async()=>showModal('event',id));
 }
 async function moveEvent(form){const id=form.dataset.id,{date,time,deadline}=formValues(form),e=data.events.find(x=>x.id===id);if(!e||e.creator_user_id!==user.id||!formValidDates(date,deadline))return;
@@ -334,13 +340,26 @@ async function notifyWhileOpen(newNotifications){if(!('Notification' in window)|
  try{localStorage.setItem(seenKey,JSON.stringify([...seenSet].slice(-100)))}catch{}
 }
 
+function isInstalled(){return window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;}
+function invitationLink(code){const u=new URL('./index.html',location.href);u.searchParams.set('invite',code);return u.toString();}
+async function loadInvitePreview(){if(!inviteCode)return;try{const r=await API.previewInvite(inviteCode);invitePerson=r.person||'';if(mode==='register'){const el=document.getElementById('invite-preview');if(el)el.textContent='Dein Profil: '+invitePerson;}}catch(e){invitePerson='';const el=document.getElementById('invite-preview');if(el)el.textContent='Code ungültig oder abgelaufen. Bitte neuen Link anfordern.';}}
+function installGuide(){const ios=/iPad|iPhone|iPod/.test(navigator.userAgent),installed=isInstalled();return `<div class="install-steps">${installed?`<div class="install-complete">${icon('check',24)} Familienzeit ist auf diesem Gerät bereits als App geöffnet.</div>`:ios?`<p>Auf dem iPhone dauert die Installation nur wenige Sekunden:</p><div><b>1</b><span>Link in Safari öffnen.</span></div><div><b>2</b><span>Auf <strong>Teilen</strong> (Quadrat mit Pfeil) tippen.</span></div><div><b>3</b><span><strong>Zum Home-Bildschirm</strong> → <strong>Hinzufügen</strong>.</span></div>`:`<p>Installiere Familienzeit direkt auf deinem Android-Smartphone:</p><div><b>1</b><span>In Chrome das Menü <strong>⋮</strong> öffnen.</span></div><div><b>2</b><span><strong>App installieren</strong> oder <strong>Zum Startbildschirm hinzufügen</strong> wählen.</span></div><div><b>3</b><span>Bestätigen und anschließend das Familienzeit-Symbol öffnen.</span></div>`}<p class="form-help">Keine App-Store-Anmeldung nötig. Dein Konto und eure Termine werden synchronisiert.</p>${!installed?`<button class="btn primary wide" data-action="install-now">${icon('plus',20)} ${ios?'Anleitung verstanden':'Jetzt installieren'}</button>`:''}</div>`;}
+function draftKey(){return 'familienzeit-draft-v11-'+(user?.id||'local');}
+function storeEventDraft(){const form=$('#new-event-form');if(!form||!user)return;const d={};for(const el of form.querySelectorAll('[name]')){if(el.type==='checkbox'){(d[el.name]??=[]).push([el.value,!!el.checked]);}else if(el.type==='radio'){if(el.checked)d[el.name]=el.value;}else d[el.name]=el.value;}try{localStorage.setItem(draftKey(),JSON.stringify({at:Date.now(),fields:d}));}catch{}}
+function restoreEventDraft(){const form=$('#new-event-form');if(!form||!user||birthdayDraft)return;let draft=null;try{draft=JSON.parse(localStorage.getItem(draftKey())||'null');}catch{}if(!draft||Date.now()-draft.at>30*24*3600*1000)return;for(const el of form.querySelectorAll('[name]')){const val=draft.fields?.[el.name];if(val===undefined)continue;if(el.type==='checkbox'){const picked=val.find?.(x=>x[0]===el.value);if(picked)el.checked=picked[1];}else if(el.type==='radio')el.checked=val===el.value;else el.value=val;}}
+function clearEventDraft(){try{localStorage.removeItem(draftKey());}catch{}}
 document.addEventListener('click',async ev=>{
  const el=ev.target.closest('[data-action]');if(!el)return;
  const a=el.dataset.action,id=el.dataset.id;
- if(a==='close-backdrop'){if(ev.target===el)closeModal();return;}
+ if(a==='close-backdrop'){return;} // Outside taps never discard a draft.
  if(a==='close'){closeModal();return;}
  if(a==='apply-update'){await applyAvailableUpdate();return;}
  if(a==='retry'){boot();return;}
+ if(a==='begin-invite'){mode='register';render();return;}
+ if(a==='back-to-login'){mode='login';render();return;}
+ if(a==='install-guide'){localStorage.setItem('fz11-show-install','no');showModal('install');return;}
+ if(a==='install-dismiss'){localStorage.setItem('fz11-show-install','no');render();return;}
+ if(a==='install-now'){if(installEvent){installEvent.prompt();await installEvent.userChoice;installEvent=null;closeModal();}else if(/iPad|iPhone|iPod/.test(navigator.userAgent))toast('Teilen → Zum Home-Bildschirm → Hinzufügen');else toast('Chrome-Menü ⋮ → App installieren');return;}
  if(a==='logout'){await work(async()=>{unsubscribe?.();unsubscribe=null;await API.logout();user=null;mode='login';closeModal();render();});return;}
  if(mode!=='ready')return;
  if(a==='page'){page=el.dataset.page;closeModal();render();window.scrollTo(0,0);return;}
@@ -351,8 +370,8 @@ document.addEventListener('click',async ev=>{
  if(a==='event'){showModal('event',id);return;}
  if(a==='person'){showModal('person',id);return;}
  if(a==='birthday-event'){birthdayDraft={personId:id,date:nextBirthday(person(id))?.date};showModal('new');return;}
- if(a==='invite-code'){if(!me()?.can_invite||!person(id).can_login)return;await work(()=>API.createInviteCode(id),null,async code=>{showModal('invite',id);modal.code=code;renderModal();});return;}
- if(a==='copy-invite'){const code=modal?.code;if(!code)return;try{await navigator.clipboard.writeText(code);toast('Einladungscode kopiert.');}catch{toast('Bitte den Code markieren und kopieren.');}return;}
+ if(a==='invite-code'){if(!me()?.can_invite||!person(id).can_login)return;if(!confirm('Einen persönlichen Einladungslink für '+person(id).display_name+' erzeugen? Ein früherer Link für diese Person würde ungültig.'))return;await work(()=>API.createInviteCode(id),null,async code=>{showModal('invite',id);modal.code=code;renderModal();});return;}
+ if(a==='copy-invite'||a==='share-invite'){const code=modal?.code;if(!code)return;const url=invitationLink(code);try{if(a==='share-invite'&&navigator.share)await navigator.share({title:'Familienzeit-Einladung',text:'Dein persönlicher Zugang zu unserem Familienkalender',url});else{await navigator.clipboard.writeText(url);toast('Persönlicher Einladungslink kopiert.');}}catch(err){if(err?.name!=='AbortError')toast('Bitte den Link markieren und kopieren.');}return;}
  if(a==='account'){showModal('account');return;}
  if(a==='notifications'){await openNotifications();return;}
  if(a==='notification-open'){await readNotification(id);return;}
@@ -373,6 +392,7 @@ document.addEventListener('click',async ev=>{
 });
 document.addEventListener('submit',async ev=>{
  const form=ev.target;ev.preventDefault();const id=form.id;
+ if(id==='register-form'){const d=new FormData(form),code=String(d.get('code')||'').trim(),email=String(d.get('email')||'').trim(),password=String(d.get('password')||'');if(password.length<10){toast('Passwort mindestens 10 Zeichen');return;}await work(async()=>{await API.registerWithInvite(code,email,password);await API.login(email,password);user=await API.getUser();if(!user)throw Error('Anmeldung nach Registrierung fehlgeschlagen');await fetchData();if(mode!=='ready')throw Error('Familienprofil konnte nicht zugeordnet werden');localStorage.setItem('fz11-show-install','yes');unsubscribe?.();unsubscribe=API.subscribe(scheduleRefresh);inviteCode='';history.replaceState(null,'',location.pathname);},'Willkommen in Familienzeit!');return;}
  if(id==='claim-form'){const code=String(new FormData(form).get('code')||'').trim();if(!code)return;await work(()=>API.claimInviteCode(code),'Dein Familienprofil ist aktiviert.',async()=>{closeModal();render();});return;}
  if(id==='login-form'){const d=new FormData(form);await work(async()=>{await API.login(String(d.get('email')).trim(),String(d.get('password')));user=await API.getUser();if(!user)throw Error('Anmeldung fehlgeschlagen');await fetchData();if(mode==='ready'){unsubscribe?.();unsubscribe=API.subscribe(scheduleRefresh);await openDeeplink();}},'Angemeldet.');return;}
  if(mode!=='ready')return;
@@ -383,7 +403,8 @@ document.addEventListener('submit',async ev=>{
  else if(id==='profile-form')await saveProfile(form);
  else if(id==='comment-form'){const text=String(new FormData(form).get('message')||'').trim();if(!text)return;await work(()=>API.addComment(form.dataset.id,user.id,text),'Kommentar gespeichert.',async()=>showModal('event',form.dataset.id));}
 });
-document.addEventListener('change',async ev=>{
+let invitePreviewTimer=null;document.addEventListener('input',ev=>{if(ev.target.closest('#new-event-form'))storeEventDraft();if(ev.target.name==='code'&&ev.target.closest('#register-form')){inviteCode=ev.target.value.trim().toLowerCase();clearTimeout(invitePreviewTimer);if(/^[0-9a-f]{24}$/.test(inviteCode))invitePreviewTimer=setTimeout(loadInvitePreview,500);}});
+document.addEventListener('change',async ev=>{if(ev.target.closest('#new-event-form'))storeEventDraft();
  const input=ev.target;
  if(input.dataset.action==='companion'&&mode==='ready')await updateCompanions(input);
  if(input.name==='kind'&&currentForm()){
@@ -396,7 +417,7 @@ document.addEventListener('change',async ev=>{
 });
 // Ein Update wird auch in einem bereits geoeffneten PWA-Fenster sichtbar angeboten.
 // Anders als beim automatischen Reload bleiben ungespeicherte Eingaben unangetastet.
-const APP_VERSION=document.querySelector('meta[name="familienzeit-version"]')?.content||'1.0';
+const APP_VERSION=document.querySelector('meta[name="familienzeit-version"]')?.content||'1.1';
 let checkingVersion=false,availableVersion='';
 function updateNotice(version){
  availableVersion=version;
@@ -434,6 +455,8 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState===
 window.addEventListener('focus',()=>checkForAppUpdate());
 window.setInterval(checkForAppUpdate,60000);
 if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost')){
- navigator.serviceWorker.register('./sw.js?v=100',{updateViaCache:'none'}).then(reg=>reg.update()).catch(console.warn);
+ navigator.serviceWorker.register('./sw.js?v=110',{updateViaCache:'none'}).then(reg=>reg.update()).catch(console.warn);
 }
+navigator.serviceWorker?.addEventListener('message',e=>{if(e.data?.type==='APP_UPDATED'&&e.data.version!==APP_VERSION)updateNotice(e.data.version);});
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installEvent=e;});
 boot();

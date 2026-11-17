@@ -10,7 +10,7 @@ export async function connect(){
   return client;
 }
 export function db(){if(!client)throw Error('Datenbankverbindung ist nicht bereit.');return client;}
-export async function getUser(){const result=await db().auth.getUser();if(result.error)return null;return result.data.user;}
+export async function getUser(){const result=await db().auth.getUser();if(result.error){if(/Auth session missing|session missing/i.test(result.error.message||''))return null;throw result.error;}return result.data.user;}
 export async function login(email,password){ok(await db().auth.signInWithPassword({email,password}));}
 export async function logout(){ok(await db().auth.signOut());}
 export async function readAll(){
@@ -23,7 +23,7 @@ export async function readAll(){
   }));
   return Object.fromEntries(pairs);
 }
-export async function createEvent(record){return ok(await db().rpc('create_family_event_styled',record));}
+export async function createEvent(record){return ok(await db().rpc('create_family_event_colored',record));}
 export async function updateEvent(id,fields){return ok(await db().from('events').update(fields).eq('id',id).select('id').single());}
 export async function replaceInvitees(id,add,remove){
   for(const person_id of remove)ok(await db().from('event_invites').delete().eq('event_id',id).eq('person_id',person_id));
@@ -51,3 +51,15 @@ export function subscribe(callback){
 }
 export async function createInviteCode(personId){return ok(await db().rpc('create_family_invite_code',{p_person_id:personId}));}
 export async function claimInviteCode(code){return ok(await db().rpc('claim_family_profile',{p_code:code}));}
+
+// Public onboarding endpoint contains NO secret browser credentials. Registration requires a
+// one-time family code, validated and consumed on the server.
+const ONBOARDING_URL=PROJECT_URL+'/functions/v1/family-onboarding';
+async function onboarding(payload){
+  const response=await fetch(ONBOARDING_URL,{method:'POST',mode:'cors',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  let data=null;try{data=await response.json();}catch{}
+  if(!response.ok)throw Error(data?.error||'Einladungsserver nicht erreichbar');
+  return data;
+}
+export async function previewInvite(code){return onboarding({action:'preview',code});}
+export async function registerWithInvite(code,email,password){return onboarding({action:'register',code,email,password});}
