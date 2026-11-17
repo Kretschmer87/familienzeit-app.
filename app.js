@@ -1,5 +1,5 @@
-/* Familienzeit 1.1 · iOS-Feinschliff, stabile Einladungen, sichere Entwürfe */
-import * as API from './backend.js?v=110';
+/* Familienzeit 1.1.1 · Fix Profilfoto-Auswahl bei Hintergrund-Synchronisierung */
+import * as API from './backend.js?v=111';
 const $=q=>document.querySelector(q);
 const PEOPLE=['Martin','Stephanie','Fynn','Sonja','Mirco','Bela','Ella','Holger','Ivonne','Susanne'];
 const CATEGORIES=[
@@ -66,6 +66,8 @@ let page='home',modal=null,user=null,mode='loading',lastError='',loadingAction=f
 let installEvent=null;const invitationFromUrl=new URLSearchParams(location.search).get('invite')||'';
 let inviteCode=/^[0-9a-f]{24}$/i.test(invitationFromUrl)?invitationFromUrl.toLowerCase():'';let invitePerson='',draftSaveTimer=null;
 let unsubscribe=null,refreshTimeout=null,avatarCache=new Map(),peopleById=new Map(),accountsByUser=new Map();
+// File inputs cannot survive DOM replacement: retain the selected object independently.
+const selectedAvatarFiles=new Map();
 let data={people:[],person_managers:[],events:[],event_invites:[],rsvps:[],rsvp_attendees:[],comments:[],alternatives:[],notifications:[]};
 const profileByUser=()=>data.people.find(p=>p.auth_user_id===user?.id)||null;
 const me=()=>profileByUser();
@@ -108,7 +110,16 @@ function authView(){
  ${mode==='unlinked'?`<form id="claim-form" class="stack"><div class="auth-tip">${icon('info',20)} Angemeldet als ${safe(user?.email||'Unbekannt')}. Dein Familienverwalter gibt dir einen einmaligen Einladungscode.</div><label class="field">Einladungscode<input class="input" name="code" autocomplete="off" autocapitalize="off" spellcheck="false" value="${safe(inviteCode)}" placeholder="Code hier einfügen" required></label><button class="btn primary wide" type="submit">${icon('check',19)} Familienprofil aktivieren</button><button class="btn secondary wide" type="button" data-action="logout">Abmelden</button></form>`:''}
  ${mode==='error'?`<button class="btn primary wide" data-action="retry">Erneut verbinden</button>`:''}</section></main></div>`;
 }
-function render(){const app=$('#app');app.innerHTML=mode==='ready'?layout():authView();if(modal&&mode==='ready'){if(!(modal.type==='new'&&$('#new-event-form')))renderModal();}else if(mode!=='ready')$('#modal-root').innerHTML='';}
+function render(){
+ const app=$('#app');app.innerHTML=mode==='ready'?layout():authView();
+ if(modal&&mode==='ready'){
+  // A focus/visibility event after Android's gallery picker can trigger fetchData().
+  // Recreating the open profile sheet would discard the browser's selected File.
+  const editingEvent=modal.type==='new'&&$('#new-event-form');
+  const editingProfile=modal.type==='person'&&$('#profile-form')?.dataset.id===modal.id;
+  if(!editingEvent&&!editingProfile)renderModal();
+ }else if(mode!=='ready')$('#modal-root').innerHTML='';
+}
 function greeting(){const h=new Date().getHours();return h<10?'Guten Morgen':h<18?'Hallo':'Guten Abend';}
 function homeView(){
  const up=upcomingEvents(),pending=pendingEvents(),births=upcomingBirthdays();
@@ -262,9 +273,9 @@ function personDetail(p){
  return `<div class="profile-cover"><div class="profile-big">${avatar(p,'xxl')}</div><div><h3>${safe(p.display_name)}</h3><span>${p.can_login?'App-Nutzer':'Familienmitglied ohne Login'}</span></div></div>
  ${p.birth_date?`<div class="profile-birthday">${icon('gift',26)}<span><b>Geburtstag am ${safe(fmt(p.birth_date,{day:'numeric',month:'long'}))}</b><small>${b.days===0?'Heute ist es so weit!':b.days===1?'Schon morgen!':`In ${b.days} Tagen`}</small></span></div>`:`<div class="profile-birthday">${icon('gift',25)}<span><b>Noch kein Geburtstag eingetragen</b><small>${canEdit?'Du kannst ihn unten ergänzen.':'Die berechtigte Person kann ihn ergänzen.'}</small></span></div>`}
  ${p.birth_date?`<button class="btn primary wide" data-action="birthday-event" data-id="${p.id}">${icon('plus',20)} Einladung zum Geburtstag erstellen</button>`:''}
- ${canEdit?`<section class="detail-panel"><h3>${icon('edit',20)} Profil bearbeiten</h3><form id="profile-form" data-id="${p.id}" class="stack"><label class="field">Geburtstag<input class="input" type="date" name="birthdate" max="${localDate()}" value="${p.birth_date||''}"></label><p class="form-help">Du kannst einen Geburtstag jederzeit nachtragen oder ändern.</p><label class="field">Profilbild <small>(optional)</small><input class="input file-input" type="file" name="avatar" accept="image/jpeg,image/png,image/webp"></label><p class="form-help">Das Bild wird auf eine quadratische Ansicht zugeschnitten und privat gespeichert. Maximal 8 MB Originalgröße.</p><button class="btn primary wide" type="submit">${icon('check',19)} Profil speichern</button></form></section>`:''}`;
+ ${canEdit?`<section class="detail-panel"><h3>${icon('edit',20)} Profil bearbeiten</h3><form id="profile-form" data-id="${p.id}" class="stack"><label class="field">Geburtstag<input class="input" type="date" name="birthdate" max="${localDate()}" value="${p.birth_date||''}"></label><p class="form-help">Du kannst einen Geburtstag jederzeit nachtragen oder ändern.</p><label class="field">Profilbild <small>(optional)</small><input class="input file-input" type="file" name="avatar" accept="image/jpeg,image/png,image/webp,image/heic,image/heif"></label><p class="form-help" id="avatar-file-status" aria-live="polite">${selectedAvatarFiles.get(p.id)?'Ausgewählt: '+safe(selectedAvatarFiles.get(p.id).name):'Noch kein Foto ausgewählt.'}</p><p class="form-help">Das Bild wird quadratisch zugeschnitten und privat gespeichert. Maximal 8 MB Originalgröße.</p><button class="btn primary wide" type="submit">${icon('check',19)} Profil speichern</button></form></section>`:''}`;
 }
-function accountView(){const own=me(),supported=('Notification' in window);return `<div class="account-profile">${avatar(own,'xl')}<div><h3>${safe(own.display_name)}</h3><p>${safe(user?.email||'Persönlich angemeldet')}</p></div></div><div class="account-section"><button class="account-link" data-action="person" data-id="${own.id}">${icon('camera',23)} <span>Mein Profil & Bild</span>${icon('chevron',20)}</button><button class="account-link" data-action="install-guide">${icon('plus',23)} <span>App auf diesem Gerät installieren <small>Android & iPhone – direkt auf den Startbildschirm</small></span>${icon('chevron',20)}</button><button class="account-link" data-action="enable-notifications">${icon('bell',23)} <span>Geräte-Benachrichtigungen <small>${supported?Notification.permission==='granted'?'Für die geöffnete App aktiviert':'Aktivieren':'In diesem Browser nicht verfügbar'}</small></span>${icon('chevron',20)}</button></div><p class="form-help notice"><b>Wichtig:</b> Terminerinnerungen werden bereits serverseitig in der App gespeichert. Geräte-Benachrichtigungen funktionieren derzeit, wenn die App geöffnet ist. Push bei geschlossener App folgt noch.</p><p class="group-proof">${icon('users',17)} Gemeinsamer Familienkalender · ${data.people.length} Personen</p><p class="app-version">Familienzeit Version 1.1</p><button class="btn secondary wide" data-action="logout">${icon('logout',19)} Abmelden</button>`;}
+function accountView(){const own=me(),supported=('Notification' in window);return `<div class="account-profile">${avatar(own,'xl')}<div><h3>${safe(own.display_name)}</h3><p>${safe(user?.email||'Persönlich angemeldet')}</p></div></div><div class="account-section"><button class="account-link" data-action="person" data-id="${own.id}">${icon('camera',23)} <span>Mein Profil & Bild</span>${icon('chevron',20)}</button><button class="account-link" data-action="install-guide">${icon('plus',23)} <span>App auf diesem Gerät installieren <small>Android & iPhone – direkt auf den Startbildschirm</small></span>${icon('chevron',20)}</button><button class="account-link" data-action="enable-notifications">${icon('bell',23)} <span>Geräte-Benachrichtigungen <small>${supported?Notification.permission==='granted'?'Für die geöffnete App aktiviert':'Aktivieren':'In diesem Browser nicht verfügbar'}</small></span>${icon('chevron',20)}</button></div><p class="form-help notice"><b>Wichtig:</b> Terminerinnerungen werden bereits serverseitig in der App gespeichert. Geräte-Benachrichtigungen funktionieren derzeit, wenn die App geöffnet ist. Push bei geschlossener App folgt noch.</p><p class="group-proof">${icon('users',17)} Gemeinsamer Familienkalender · ${data.people.length} Personen</p><p class="app-version">Familienzeit Version 1.1.1</p><button class="btn secondary wide" data-action="logout">${icon('logout',19)} Abmelden</button>`;}
 function notificationsView(){return `${data.notifications.length?data.notifications.map(n=>`<button class="notification-row ${!n.read_at?'unread':''}" data-action="notification-open" data-id="${n.id}"><span class="notification-symbol">${icon(n.related_person_id?'gift':n.kind==='nudge'?'bell':'calendar',24)}</span><span><strong>${safe(n.related_person_id?'Geburtstag':n.kind==='invited'?'Neue Einladung':n.kind==='rescheduled'?'Termin verschoben':n.kind==='cancelled'?'Termin abgesagt':n.kind==='deadline_reminder'?'Antwortfrist läuft ab':n.kind==='nudge'?'Erinnerung':'Familien-Nachricht')}</strong><p>${safe(n.message)}</p><small>${new Date(n.created_at).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'})}</small></span>${icon('chevron',18)}</button>`).join(''):'<div class="empty-state compact">Hier erscheinen eure Einladungen, Erinnerungen und Änderungen.</div>'}<p class="form-help notice">Die App prüft jeden Morgen, welche Geburtstage und Antwortfristen anstehen.</p>`;}
 function pendingView(){const list=pendingEvents();return `<p class="form-help">${list.length?'Diese Einladungen warten noch auf deine Antwort. Wähle einen Termin, um direkt zuzusagen oder abzusagen.':'Du hast aktuell alle Einladungen beantwortet.'}</p><div class="event-list">${list.map(eventCard).join('')}</div>`;}
 
@@ -292,25 +303,43 @@ async function saveAlternative(form){const id=form.dataset.id,{date,time}=formVa
  if(date===e.event_date&&time===String(e.event_time).slice(0,5)){toast('Wähle bitte eine echte Alternative.');return;}
  await work(()=>API.addAlternative(id,user.id,date,time),'Terminvorschlag übermittelt.',async()=>showModal('event',id));
 }
-function croppedBlob(file){return new Promise(async(resolve,reject)=>{
-  if(file.size>8*1024*1024){reject(Error('Das Foto ist größer als 8 MB.'));return;}
-  if(!['image/jpeg','image/png','image/webp'].includes(file.type)){reject(Error('Bitte JPG, PNG oder WebP auswählen.'));return;}
-  let bitmap=null,objectUrl=null,source=null;
-  try{
-    if('createImageBitmap' in window){bitmap=await createImageBitmap(file);source=bitmap;}
-    else {objectUrl=URL.createObjectURL(file);source=new Image();await new Promise((res,rej)=>{source.onload=res;source.onerror=rej;source.src=objectUrl;});}
-    const w=source.width,h=source.height,s=Math.min(w,h),canvas=document.createElement('canvas');canvas.width=384;canvas.height=384;
-    const ctx=canvas.getContext('2d');if(!ctx)throw Error('Bildverarbeitung nicht verfügbar');
-    ctx.drawImage(source,(w-s)/2,(h-s)/2,s,s,0,0,384,384);
-    canvas.toBlob(blob=>{if(blob)resolve(blob);else reject(Error('Bild konnte nicht verarbeitet werden'));},'image/webp',.83);
-  }catch(e){reject(e);}finally{bitmap?.close?.();if(objectUrl)URL.revokeObjectURL(objectUrl);}
- });}
-async function saveProfile(form){const id=form.dataset.id;if(!canManage(id))return;
- const formdata=new FormData(form),date=String(formdata.get('birthdate')||'');if(date&&date>localDate()){toast('Der Geburtstag darf nicht in der Zukunft liegen.');return;}
+async function croppedBlob(file){
+ if(file.size>8*1024*1024)throw Error('Das Foto ist größer als 8 MB.');
+ if(!['image/jpeg','image/png','image/webp','image/heic','image/heif'].includes(file.type))throw Error('Bitte ein JPG-, PNG-, WebP- oder unterstütztes HEIC-Foto wählen.');
+ let bitmap=null,objectUrl=null,source=null;
+ try{
+  // Some mobile browsers expose createImageBitmap but cannot decode a particular file.
+  if('createImageBitmap' in window){try{bitmap=await createImageBitmap(file);source=bitmap;}catch{}}
+  if(!source){
+   objectUrl=URL.createObjectURL(file);source=new Image();
+   await new Promise((res,rej)=>{source.onload=res;source.onerror=()=>rej(Error('Dieses Bildformat kann der Browser nicht öffnen. Bitte das Foto als JPG wählen.'));source.src=objectUrl;});
+  }
+  const w=source.width,h=source.height,s=Math.min(w,h);
+  if(!w||!h)throw Error('Foto konnte nicht gelesen werden.');
+  const canvas=document.createElement('canvas');canvas.width=384;canvas.height=384;
+  const ctx=canvas.getContext('2d');if(!ctx)throw Error('Bildverarbeitung nicht verfügbar');
+  ctx.drawImage(source,(w-s)/2,(h-s)/2,s,s,0,0,384,384);
+  const blob=await new Promise((res,rej)=>canvas.toBlob(b=>b?res(b):rej(Error('Foto konnte nicht verarbeitet werden')),'image/webp',.83));
+  if(!['image/webp','image/jpeg','image/png'].includes(blob.type))throw Error('Bildformat nach Verarbeitung nicht unterstützt.');
+  return blob;
+ }finally{bitmap?.close?.();if(objectUrl)URL.revokeObjectURL(objectUrl);}
+}
+async function saveProfile(form){
+ const id=form.dataset.id;if(!canManage(id))return;
+ const formdata=new FormData(form),date=String(formdata.get('birthdate')||'');
+ if(date&&date>localDate()){toast('Der Geburtstag darf nicht in der Zukunft liegen.');return;}
  await work(async()=>{
-  const fields={birth_date:date||null},file=formdata.get('avatar');
-  if(file&&file instanceof File&&file.size){const blob=await croppedBlob(file);fields.avatar_path=await API.uploadAvatar(id,blob);avatarCache.delete(id);}
+  const fields={birth_date:date||null};
+  // Use the detached file reference first; it survives focus-triggered refreshes.
+  const fromInput=form.querySelector('input[name="avatar"]')?.files?.[0]||null;
+  const file=selectedAvatarFiles.get(id)||fromInput;
+  if(file&&file.size){
+   const blob=await croppedBlob(file);
+   fields.avatar_path=await API.uploadAvatar(id,blob);
+   avatarCache.delete(id);
+  }
   await API.savePerson(id,fields);
+  selectedAvatarFiles.delete(id);
  },'Profil gespeichert.',async()=>showModal('person',id));
 }
 async function applyResponse(id,status){const e=data.events.find(x=>x.id===id);if(!e||e.status!=='active')return;
@@ -406,6 +435,15 @@ document.addEventListener('submit',async ev=>{
 let invitePreviewTimer=null;document.addEventListener('input',ev=>{if(ev.target.closest('#new-event-form'))storeEventDraft();if(ev.target.name==='code'&&ev.target.closest('#register-form')){inviteCode=ev.target.value.trim().toLowerCase();clearTimeout(invitePreviewTimer);if(/^[0-9a-f]{24}$/.test(inviteCode))invitePreviewTimer=setTimeout(loadInvitePreview,500);}});
 document.addEventListener('change',async ev=>{if(ev.target.closest('#new-event-form'))storeEventDraft();
  const input=ev.target;
+ if(input.name==='avatar'&&input.type==='file'&&input.closest('#profile-form')){
+  const profileId=input.closest('#profile-form').dataset.id;
+  const file=input.files?.[0];
+  if(file){
+   selectedAvatarFiles.set(profileId,file);
+   const status=document.getElementById('avatar-file-status');
+   if(status)status.textContent='Ausgewählt: '+file.name;
+  }
+ }
  if(input.dataset.action==='companion'&&mode==='ready')await updateCompanions(input);
  if(input.name==='kind'&&currentForm()){
    const selected=input.value;
@@ -417,7 +455,7 @@ document.addEventListener('change',async ev=>{if(ev.target.closest('#new-event-f
 });
 // Ein Update wird auch in einem bereits geoeffneten PWA-Fenster sichtbar angeboten.
 // Anders als beim automatischen Reload bleiben ungespeicherte Eingaben unangetastet.
-const APP_VERSION=document.querySelector('meta[name="familienzeit-version"]')?.content||'1.1';
+const APP_VERSION=document.querySelector('meta[name="familienzeit-version"]')?.content||'1.1.1';
 let checkingVersion=false,availableVersion='';
 function updateNotice(version){
  availableVersion=version;
@@ -455,7 +493,7 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState===
 window.addEventListener('focus',()=>checkForAppUpdate());
 window.setInterval(checkForAppUpdate,60000);
 if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost')){
- navigator.serviceWorker.register('./sw.js?v=110',{updateViaCache:'none'}).then(reg=>reg.update()).catch(console.warn);
+ navigator.serviceWorker.register('./sw.js?v=111',{updateViaCache:'none'}).then(reg=>reg.update()).catch(console.warn);
 }
 navigator.serviceWorker?.addEventListener('message',e=>{if(e.data?.type==='APP_UPDATED'&&e.data.version!==APP_VERSION)updateNotice(e.data.version);});
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installEvent=e;});
