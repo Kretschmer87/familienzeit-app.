@@ -1,4 +1,4 @@
-/* Familienzeit 0.9.3 · Klarer, warmer Familienkalender · mobile first */
+/* Familienzeit 1.0 · Blaues Dashboard mit iOS-Feinschliff · mobile first */
 import * as API from './backend.js';
 const $=q=>document.querySelector(q);
 const PEOPLE=['Martin','Stephanie','Fynn','Sonja','Mirco','Bela','Ella','Holger','Ivonne','Susanne'];
@@ -61,6 +61,7 @@ const typeName=id=>CATEGORIES.find(c=>c.id===id)?.name||'Sonstiges';
 const typeIcon=id=>CATEGORIES.find(c=>c.id===id)?.icon||'calendar';
 const bgName=id=>VARIANTS.find(v=>v.id===id)?.name||'Motiv';
 function toast(msg){const el=$('#toast-root');el.textContent=msg;el.classList.add('show');clearTimeout(toast.timer);toast.timer=setTimeout(()=>{el.classList.remove('show');},4400);}
+let homeFilter='all';
 let page='home',modal=null,user=null,mode='loading',lastError='',loadingAction=false,month=new Date(),selectedDay=localDate(),birthdayDraft=null;
 let unsubscribe=null,refreshTimeout=null,avatarCache=new Map(),peopleById=new Map(),accountsByUser=new Map();
 let data={people:[],person_managers:[],events:[],event_invites:[],rsvps:[],rsvp_attendees:[],comments:[],alternatives:[],notifications:[]};
@@ -109,10 +110,23 @@ function greeting(){const h=new Date().getHours();return h<10?'Guten Morgen':h<1
 function homeView(){
  const up=upcomingEvents(),pending=pendingEvents(),births=upcomingBirthdays();
  const imminent=births.filter(p=>p.next.days<=7).length;
- return `<section class="welcome-strip" aria-label="Begrüßung"><div class="welcome-copy"><span>${greeting()}, ${safe(me().display_name)}!</span></div><div class="welcome-illustration" aria-hidden="true">${icon('heart',51)}</div></section>
- <section class="home-heading"><h1>Unsere Termine</h1><button class="birthday-shortcut ${imminent?'has-birthday':''}" type="button" data-action="birthdays" aria-label="Geburtstage ansehen" title="Geburtstage">${icon('gift',25)}${imminent?`<span class="birthday-count">${imminent}</span>`:''}</button></section>
- ${pending.length?`<button class="pending-inline" type="button" data-action="pending" aria-label="${pending.length} offene Einladungen ansehen"><span class="pending-symbol">${icon('bell',22)}</span><span class="pending-copy"><strong>${pending.length===1?'Eine Antwort ist offen':`${pending.length} Antworten sind offen`}</strong><span>Jetzt beantworten</span></span>${icon('chevron',21)}</button>`:''}
- <section class="event-list home-event-list" aria-label="Anstehende Familientermine">${up.length?up.map(eventCard).join(''):`<div class="empty-state home-empty">${icon('calendar',35)}<h3>Noch keine Termine</h3><p>Was möchtet ihr gemeinsam unternehmen?</p><button class="btn primary" data-action="new-event">Termin erstellen</button></div>`}</section>`;
+ const own=me(),name=safe(own?.display_name||'Familie');
+ const visible=homeFilter==='mine'?up.filter(e=>eventInvites(e.id).includes(own.id)):homeFilter==='pending'?pending:up;
+ const currentFilter=homeFilter==='mine'?'Meine':homeFilter==='pending'?'Offene':'Alle';
+ return `<section class="dashboard-welcome" aria-label="Dein Familienüberblick">
+   <span class="welcome-sheen" aria-hidden="true"></span>
+   <div class="welcome-content">
+    <h1>${greeting()}, ${name}!</h1>
+    <p>Hier siehst du, was ihr gemeinsam vorhabt.</p>
+    <div class="welcome-actions"><span class="welcome-counter">${icon('calendar',19)} ${up.length} ${up.length===1?'Termin':'Termine'} geplant</span>
+    <button type="button" class="birthday-quick" data-action="birthdays" title="Geburtstage ansehen" aria-label="Geburtstage ansehen${imminent?`, ${imminent} bald`:''}">${icon('gift',23)}${imminent?`<i aria-hidden="true">${imminent}</i>`:''}</button></div>
+   </div><div class="welcome-sculpt" aria-hidden="true"><span class="sculpt-glow"></span>${icon('heart',75)}</div>
+ </section>
+ ${pending.length?`<button class="pending-action" type="button" data-action="pending"><span class="pending-action-icon">${icon('bell',25)}</span><span class="pending-action-copy"><strong>${pending.length===1?'Eine Rückmeldung offen':`${pending.length} Rückmeldungen offen`}</strong><small>Tippen und antworten</small></span>${icon('chevron',24)}</button>`:''}
+ <div class="dashboard-section-head"><div><h2>Nächste Termine</h2><p>Unsere gemeinsamen Pläne</p></div><button class="dashboard-filter" type="button" data-action="home-filter" aria-label="Termine filtern, aktuell ${currentFilter}">${currentFilter} ${icon('down',18)}</button></div>
+ <section class="event-list dashboard-events" aria-label="Anstehende Familientermine">
+ ${visible.length?visible.map(eventCard).join(''):`<div class="empty-state home-empty">${icon('calendar',34)}<h3>${homeFilter==='all'?'Noch keine Termine':'Keine passenden Termine'}</h3><p>${homeFilter==='all'?'Plane euren nächsten gemeinsamen Moment.':'Wechsle zu „Alle“, um alle Termine zu sehen.'}</p>${homeFilter==='all'?`<button class="btn primary" data-action="new-event">Termin erstellen</button>`:''}</div>`}
+ </section>`;
 }
 function birthdayOverview(){
  const birthdays=upcomingBirthdays();
@@ -122,17 +136,21 @@ function birthdayMini(p){const b=p.next;return `<button class="birthday-mini" da
 function themeClass(e){return `category-${/^(coffee|birthday|dining|gathering|party|trip|holiday|other)$/.test(e.kind)?e.kind:'other'} cover-${/^(soft|illustrated|warm)$/.test(e.cover_style)?e.cover_style:'illustrated'}`;}
 function responseLabel(r){return !r?'Antwort offen':r.status==='yes'?'Zugesagt':r.status==='no'?'Abgesagt':'Vielleicht';}
 function eventCard(e){
- const own=me(),r=responseFor(e.id,own.id),isHost=e.creator_user_id===user.id,invited=eventInvites(e.id).includes(own.id);
- const hostProfile=accountsByUser.get(e.creator_user_id);
- const host=hostProfile?.display_name||'Familie';
- const status=!invited?'':r?.status==='yes'?'Zugesagt':r?.status==='no'?'Abgesagt':r?.status==='maybe'?'Vielleicht':isHost?'Du organisierst':'Antwort offen';
- const statusIcon=r?.status==='yes'?'check':r?.status==='no'?'x':r?.status==='maybe'?'info':'clock';
- return `<button class="event-card event-card-refined ${themeClass(e)}" type="button" data-action="event" data-id="${e.id}" aria-label="${safe(e.title)}, ${safe(fmt(e.event_date))} um ${safe(String(e.event_time).slice(0,5))} Uhr, Details öffnen">
- <span class="event-card-art" aria-hidden="true">${icon(typeIcon(e.kind),108)}</span>
- <span class="event-refined-main"><span class="event-date-block"><span class="event-date-month">${monthShort(e.event_date)}</span><strong>${+e.event_date.slice(8,10)}</strong><span class="event-date-weekday">${weekday(e.event_date)}</span></span>
- <span class="event-refined-info"><span class="event-kind">${icon(typeIcon(e.kind),20)} ${safe(typeName(e.kind))}</span><strong class="event-refined-title">${safe(e.title)}</strong><span class="event-refined-time">${icon('clock',18)} ${safe(String(e.event_time).slice(0,5))} Uhr</span></span>
- <span class="event-refined-arrow" aria-hidden="true">${icon('chevron',21)}</span></span>
- <span class="event-refined-footer"><span class="event-host">${hostProfile?avatar(hostProfile,'xs'):icon('users',19)} <span>${safe(host)}</span></span>${status?`<span class="event-refined-status ${r?.status||'open'}">${icon(statusIcon,16)} ${safe(status)}</span>`:''}</span>
+ const own=me(),r=responseFor(e.id,own.id),invited=eventInvites(e.id).includes(own.id);
+ const host=accountsByUser.get(e.creator_user_id),hostName=host?.display_name||'Familie';
+ const status=!invited?'':r?.status==='yes'?'Zugesagt':r?.status==='no'?'Abgesagt':r?.status==='maybe'?'Vielleicht':'Antwort offen';
+ const statusClass=r?.status||'open',statusIcon=r?.status==='yes'?'check':r?.status==='no'?'x':r?.status==='maybe'?'info':'clock';
+ const comments=data.comments.filter(c=>c.event_id===e.id).length;
+ const attendees=guestsTotal(e);
+ return `<button class="event-card family-event-card ${themeClass(e)}" type="button" data-action="event" data-id="${e.id}" aria-label="${safe(e.title)}, ${safe(fmt(e.event_date))}, ${safe(String(e.event_time).slice(0,5))} Uhr, Details öffnen">
+  <span class="family-event-watermark" aria-hidden="true">${icon(typeIcon(e.kind),110)}</span>
+  <span class="family-event-main">
+   <span class="family-date-tile"><span class="family-date-month">${monthShort(e.event_date)}</span><strong>${+e.event_date.slice(8,10)}</strong><span class="family-date-weekday">${weekday(e.event_date)}</span><span class="family-date-symbol" aria-hidden="true">${icon(typeIcon(e.kind),21)}</span></span>
+   <span class="family-event-info"><span class="family-event-category">${safe(typeName(e.kind))}</span><strong class="family-event-title">${safe(e.title)}</strong><span class="family-event-time">${icon('clock',19)} ${safe(String(e.event_time).slice(0,5))} Uhr</span><span class="family-event-host">${host?avatar(host,'xs'):icon('users',19)} ${safe(hostName)} lädt ein</span></span>
+   <span class="family-event-chevron" aria-hidden="true">${icon('chevron',22)}</span>
+  </span>
+  ${e.teaser?`<span class="family-event-teaser">${safe(e.teaser)}</span>`:''}
+  <span class="family-event-footer"><span class="family-event-stats"><span>${icon('users',19)} ${attendees} ${attendees===1?'Person':'Personen'}</span><span>${icon('message',18)} ${comments}</span></span>${status?`<span class="family-event-status ${statusClass}">${icon(statusIcon,16)} ${safe(status)}</span>`:''}</span>
  </button>`;
 }
 function calendarView(){
@@ -240,7 +258,7 @@ function personDetail(p){
  ${p.birth_date?`<button class="btn primary wide" data-action="birthday-event" data-id="${p.id}">${icon('plus',20)} Einladung zum Geburtstag erstellen</button>`:''}
  ${canEdit?`<section class="detail-panel"><h3>${icon('edit',20)} Profil bearbeiten</h3><form id="profile-form" data-id="${p.id}" class="stack"><label class="field">Geburtstag<input class="input" type="date" name="birthdate" max="${localDate()}" value="${p.birth_date||''}"></label><p class="form-help">Du kannst einen Geburtstag jederzeit nachtragen oder ändern.</p><label class="field">Profilbild <small>(optional)</small><input class="input file-input" type="file" name="avatar" accept="image/jpeg,image/png,image/webp"></label><p class="form-help">Das Bild wird auf eine quadratische Ansicht zugeschnitten und privat gespeichert. Maximal 8 MB Originalgröße.</p><button class="btn primary wide" type="submit">${icon('check',19)} Profil speichern</button></form></section>`:''}`;
 }
-function accountView(){const own=me(),supported=('Notification' in window);return `<div class="account-profile">${avatar(own,'xl')}<div><h3>${safe(own.display_name)}</h3><p>${safe(user?.email||'Persönlich angemeldet')}</p></div></div><div class="account-section"><button class="account-link" data-action="person" data-id="${own.id}">${icon('camera',23)} <span>Mein Profil & Bild</span>${icon('chevron',20)}</button><button class="account-link" data-action="enable-notifications">${icon('bell',23)} <span>Geräte-Benachrichtigungen <small>${supported?Notification.permission==='granted'?'Für die geöffnete App aktiviert':'Aktivieren':'In diesem Browser nicht verfügbar'}</small></span>${icon('chevron',20)}</button></div><p class="form-help notice"><b>Wichtig:</b> Terminerinnerungen werden bereits serverseitig in der App gespeichert. Geräte-Benachrichtigungen funktionieren derzeit, wenn die App geöffnet ist. Push bei geschlossener App folgt noch.</p><p class="app-version">Familienzeit Version 0.9.3 · Klar & warm</p><button class="btn secondary wide" data-action="logout">${icon('logout',19)} Abmelden</button>`;}
+function accountView(){const own=me(),supported=('Notification' in window);return `<div class="account-profile">${avatar(own,'xl')}<div><h3>${safe(own.display_name)}</h3><p>${safe(user?.email||'Persönlich angemeldet')}</p></div></div><div class="account-section"><button class="account-link" data-action="person" data-id="${own.id}">${icon('camera',23)} <span>Mein Profil & Bild</span>${icon('chevron',20)}</button><button class="account-link" data-action="enable-notifications">${icon('bell',23)} <span>Geräte-Benachrichtigungen <small>${supported?Notification.permission==='granted'?'Für die geöffnete App aktiviert':'Aktivieren':'In diesem Browser nicht verfügbar'}</small></span>${icon('chevron',20)}</button></div><p class="form-help notice"><b>Wichtig:</b> Terminerinnerungen werden bereits serverseitig in der App gespeichert. Geräte-Benachrichtigungen funktionieren derzeit, wenn die App geöffnet ist. Push bei geschlossener App folgt noch.</p><p class="app-version">Familienzeit Version 1.0 · Blau & modern</p><button class="btn secondary wide" data-action="logout">${icon('logout',19)} Abmelden</button>`;}
 function notificationsView(){return `${data.notifications.length?data.notifications.map(n=>`<button class="notification-row ${!n.read_at?'unread':''}" data-action="notification-open" data-id="${n.id}"><span class="notification-symbol">${icon(n.related_person_id?'gift':n.kind==='nudge'?'bell':'calendar',24)}</span><span><strong>${safe(n.related_person_id?'Geburtstag':n.kind==='invited'?'Neue Einladung':n.kind==='rescheduled'?'Termin verschoben':n.kind==='cancelled'?'Termin abgesagt':n.kind==='deadline_reminder'?'Antwortfrist läuft ab':n.kind==='nudge'?'Erinnerung':'Familien-Nachricht')}</strong><p>${safe(n.message)}</p><small>${new Date(n.created_at).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'})}</small></span>${icon('chevron',18)}</button>`).join(''):'<div class="empty-state compact">Hier erscheinen eure Einladungen, Erinnerungen und Änderungen.</div>'}<p class="form-help notice">Die App prüft jeden Morgen, welche Geburtstage und Antwortfristen anstehen.</p>`;}
 function pendingView(){const list=pendingEvents();return `<p class="form-help">${list.length?'Diese Einladungen warten noch auf deine Antwort. Wähle einen Termin, um direkt zuzusagen oder abzusagen.':'Du hast aktuell alle Einladungen beantwortet.'}</p><div class="event-list">${list.map(eventCard).join('')}</div>`;}
 
@@ -321,12 +339,14 @@ document.addEventListener('click',async ev=>{
  const a=el.dataset.action,id=el.dataset.id;
  if(a==='close-backdrop'){if(ev.target===el)closeModal();return;}
  if(a==='close'){closeModal();return;}
+ if(a==='apply-update'){await applyAvailableUpdate();return;}
  if(a==='retry'){boot();return;}
  if(a==='logout'){await work(async()=>{unsubscribe?.();unsubscribe=null;await API.logout();user=null;mode='login';closeModal();render();});return;}
  if(mode!=='ready')return;
  if(a==='page'){page=el.dataset.page;closeModal();render();window.scrollTo(0,0);return;}
  if(a==='new-event'){birthdayDraft=null;showModal('new');return;}
  if(a==='birthdays'){showModal('birthdays');return;}
+ if(a==='home-filter'){homeFilter=homeFilter==='all'?'mine':homeFilter==='mine'?'pending':'all';render();return;}
  if(a==='pending'){const list=pendingEvents();if(list.length===1){showModal('event',list[0].id);}else if(list.length>1){showModal('pending');}else{toast('Alle Einladungen sind beantwortet.');}return;}
  if(a==='event'){showModal('event',id);return;}
  if(a==='person'){showModal('person',id);return;}
@@ -374,45 +394,46 @@ document.addEventListener('change',async ev=>{
    }
  }
 });
-// Version-Check: Ein geöffnetes PWA-Fenster kann beim Update stehenbleiben, obwohl GitHub
-// Pages schon die neue Version liefert. Wir prüfen bei Rückkehr in die App und periodisch.
-// Keine Reloads während der Bearbeitung von Terminen/Profilen, damit Eingaben erhalten bleiben.
-const APP_VERSION='0.9.1';
-let checkingVersion=false;
+// Ein Update wird auch in einem bereits geoeffneten PWA-Fenster sichtbar angeboten.
+// Anders als beim automatischen Reload bleiben ungespeicherte Eingaben unangetastet.
+const APP_VERSION=document.querySelector('meta[name="familienzeit-version"]')?.content||'1.0';
+let checkingVersion=false,availableVersion='';
+function updateNotice(version){
+ availableVersion=version;
+ let box=document.querySelector('#app-update-notice');
+ if(!box){box=document.createElement('div');box.id='app-update-notice';document.body.appendChild(box);}
+ box.className='app-update-notice';
+ box.setAttribute('role','status');
+ box.innerHTML=`<span class="update-notice-icon">${icon('refresh',22)}</span><span class="update-notice-text"><strong>Update verfügbar</strong><small>Neue Version ${safe(version)} bereit</small></span><button type="button" data-action="apply-update">Aktualisieren</button>`;
+}
 async function checkForAppUpdate(){
  if(checkingVersion||document.visibilityState==='hidden'||!navigator.onLine)return;
  checkingVersion=true;
  try{
-  const checkUrl=new URL('./index.html',location.href);
-  checkUrl.searchParams.set('fz-update',String(Date.now()));
-  const controller=new AbortController();
-  const timer=setTimeout(()=>controller.abort(),7000);
-  let response;
-  try{response=await fetch(checkUrl,{cache:'no-store',signal:controller.signal});}
-  finally{clearTimeout(timer);}
-  if(!response.ok)return;
-  const html=await response.text();
-  const match=html.match(/<meta\s+name=["']familienzeit-version["']\s+content=["']([^"']+)["']/i);
-  if(!match||match[1]===APP_VERSION)return;
-  // Nothing should be discarded while a user is entering data in a form.
-  if(document.querySelector('#modal-root .sheet, input:focus, textarea:focus, select:focus'))return;
-  const key='familienzeit-update-attempt-'+match[1];
-  if(sessionStorage.getItem(key))return;
-  sessionStorage.setItem(key,'1');
-  if('serviceWorker' in navigator){
-    const registration=await navigator.serviceWorker.getRegistration();
-    await registration?.update();
-  }
-  const target=new URL('./index.html',location.href);
-  target.searchParams.set('v',match[1]);
-  location.replace(target.href);
- }catch(err){console.info('Update-Prüfung später erneut',err);}
- finally{checkingVersion=false;}
+  const url=new URL('./index.html',location.href);url.searchParams.set('update-check',String(Date.now()));
+  const res=await fetch(url,{cache:'no-store'});
+  if(!res.ok)return;
+  const html=await res.text();
+  const version=html.match(/<meta\s+name=["']familienzeit-version["']\s+content=["']([^"']+)["']/i)?.[1];
+  if(version&&version!==APP_VERSION){updateNotice(version);const reg=await navigator.serviceWorker?.getRegistration();reg?.update().catch(()=>{});}
+ }catch(e){console.info('Update-Pruefung wird wiederholt',e)}finally{checkingVersion=false;}
 }
-if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost')){
- navigator.serviceWorker.register('./sw.js?v=091',{updateViaCache:'none'}).then(reg=>reg.update()).catch(console.warn);
+async function applyAvailableUpdate(){
+ const button=document.querySelector('#app-update-notice button');if(button){button.disabled=true;button.textContent='Lade …';}
+ try{
+  const reg=await navigator.serviceWorker?.getRegistration();
+  await reg?.update();
+  if(reg?.waiting)reg.waiting.postMessage({type:'SKIP_WAITING'});
+ }catch(e){console.info('Service Worker aktualisiert sich beim Aufruf',e)}
+ const target=new URL('./index.html',location.href);
+ target.searchParams.set('v',availableVersion||String(Date.now()));
+ location.replace(target.href);
 }
-window.addEventListener('pageshow',()=>setTimeout(checkForAppUpdate,1000));
+window.addEventListener('pageshow',()=>setTimeout(checkForAppUpdate,1200));
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')checkForAppUpdate();});
-window.setInterval(checkForAppUpdate,3*60*1000);
+window.addEventListener('focus',()=>checkForAppUpdate());
+window.setInterval(checkForAppUpdate,60000);
+if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost')){
+ navigator.serviceWorker.register('./sw.js?v=100',{updateViaCache:'none'}).then(reg=>reg.update()).catch(console.warn);
+}
 boot();
