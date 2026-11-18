@@ -1,4 +1,4 @@
-/* Familienzeit 1.2 · Supabase-Browserzugang · nur öffentlicher Publishable Key */
+/* Familienzeit 1.3 · Supabase-Browserzugang · nur öffentlicher Publishable Key */
 const PROJECT_URL='https://lzkousocxlswizkycrai.supabase.co';
 const PUBLIC_KEY='sb_publishable_W3sSqSCfTTc152DrXPPXSQ_QoSoLpGS';
 let client=null;
@@ -69,4 +69,23 @@ export async function saveReminders(event_id,user_id,settings){
 }
 export async function deleteReminders(event_id){
  return ok(await db().from('event_reminder_preferences').delete().eq('event_id',event_id));
+}
+
+const PUSH_ENDPOINT=PROJECT_URL+'/functions/v1/family-push';
+export async function getPushConfig(){
+ const session=ok(await db().auth.getSession())?.session;
+ if(!session?.access_token)throw Error('Bitte erneut anmelden.');
+ const res=await fetch(PUSH_ENDPOINT,{method:'POST',mode:'cors',cache:'no-store',headers:{'Content-Type':'application/json','Authorization':'Bearer '+session.access_token},body:JSON.stringify({action:'config'})});
+ const payload=await res.json().catch(()=>({}));
+ if(!res.ok||!payload.public_key)throw Error(payload.error||'Push-Dienst nicht erreichbar');
+ return payload;
+}
+export async function savePushSubscription(userId,sub){
+ return ok(await db().from('push_subscriptions').upsert({user_id:userId,endpoint:sub.endpoint,p256dh:sub.keys.p256dh,auth_secret:sub.keys.auth},{onConflict:'endpoint'}));
+}
+export async function isPushSubscribed(){
+ if(!('serviceWorker' in navigator)||!('PushManager' in window))return false;
+ const reg=await navigator.serviceWorker.ready;const sub=await reg.pushManager.getSubscription();
+ if(!sub)return false;const r=await db().from('push_subscriptions').select('id').eq('endpoint',sub.endpoint).maybeSingle();
+ return !r.error&&!!r.data;
 }

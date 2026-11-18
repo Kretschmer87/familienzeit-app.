@@ -1,5 +1,5 @@
-/* Familienzeit 1.2 · Gastgeber und persönliche Terminerinnerungen */
-import * as API from './backend.js?v=120';
+/* Familienzeit 1.3 · Haushaltsbegleitung, Mitteilungen, Intervalle und Push */
+import * as API from './backend.js?v=130';
 const $=q=>document.querySelector(q);
 const PEOPLE=['Martin','Stephanie','Fynn','Sonja','Mirco','Bela','Ella','Holger','Ivonne','Susanne'];
 const CATEGORIES=[
@@ -63,7 +63,7 @@ const colorName=id=>COLORS.find(v=>v.id===id)?.name||'Blau';
 function toast(msg){const el=$('#toast-root');el.textContent=msg;el.classList.add('show');clearTimeout(toast.timer);toast.timer=setTimeout(()=>{el.classList.remove('show');},4400);}
 let homeFilter='all';
 let page='home',modal=null,user=null,mode='loading',lastError='',loadingAction=false,month=new Date(),selectedDay=localDate(),birthdayDraft=null;
-let installEvent=null;const invitationFromUrl=new URLSearchParams(location.search).get('invite')||'';
+let installEvent=null, pushEnabled=false;const invitationFromUrl=new URLSearchParams(location.search).get('invite')||'';
 let inviteCode=/^[0-9a-f]{24}$/i.test(invitationFromUrl)?invitationFromUrl.toLowerCase():'';let invitePerson='',draftSaveTimer=null;
 let unsubscribe=null,refreshTimeout=null,avatarCache=new Map(),peopleById=new Map(),accountsByUser=new Map();
 // File inputs cannot survive DOM replacement: retain the selected object independently.
@@ -91,11 +91,17 @@ function pendingEvents(){const own=me();if(!own)return [];return data.events.fil
 function compareEventStarts(a,b){return a.event_date.localeCompare(b.event_date)||String(a.event_time).localeCompare(String(b.event_time))||a.id.localeCompare(b.id);}
 function futureEvent(e){return e.status==='active'&&new Date(e.event_date+'T'+String(e.event_time).slice(0,5)+':00').getTime()>=Date.now();}
 function upcomingEvents(){return data.events.filter(futureEvent).sort(compareEventStarts);}
-function unread(){return data.notifications.filter(n=>!n.read_at);}
+function isReminderExpired(n){
+ if(!n.kind?.startsWith('personal_event_'))return false;
+ const e=data.events.find(e=>e.id===n.event_id);
+ return !e||e.status!=='active'||new Date(e.event_date+'T'+String(e.event_time).slice(0,5)+':00').getTime()<=Date.now();
+}
+function visibleNotifications(){return data.notifications.filter(n=>!isReminderExpired(n));}
+function unread(){return visibleNotifications().filter(n=>!n.read_at);}
 async function fetchAvatars(){await Promise.all(data.people.filter(p=>p.avatar_path).map(async p=>{const c=avatarCache.get(p.id);if(c?.path===p.avatar_path&&c?.until>Date.now())return;try{const url=await API.avatarUrl(p.avatar_path);avatarCache.set(p.id,{url,path:p.avatar_path,until:Date.now()+45*60*1000});}catch(err){console.warn('Profilbild nicht verfügbar:',err);}}));}
 async function fetchData(){const oldIds=new Set(data.notifications.map(n=>n.id));const oldReady=mode==='ready';data=await API.readAll();peopleById=new Map(data.people.map(p=>[p.id,p]));accountsByUser=new Map(data.people.filter(p=>p.auth_user_id).map(p=>[p.auth_user_id,p]));if(!me()){mode='unlinked';render();return;}await fetchAvatars();mode='ready';render();if(oldReady)await notifyWhileOpen(data.notifications.filter(n=>!oldIds.has(n.id)));else await notifyWhileOpen(data.notifications.filter(n=>Date.now()-new Date(n.created_at).getTime()<120000));}
 function scheduleRefresh(){clearTimeout(refreshTimeout);refreshTimeout=setTimeout(()=>{if(!loadingAction&&user)fetchData().catch(e=>{console.warn('Aktualisierung fehlgeschlagen',e);});},430);}
-async function boot(){mode='loading';render();try{await API.connect();user=await API.getUser();if(!user){mode=inviteCode?'register':'login';render();if(inviteCode)loadInvitePreview();return;}await fetchData();unsubscribe?.();unsubscribe=API.subscribe(scheduleRefresh);setInterval(()=>{if(user&&document.visibilityState==='visible')scheduleRefresh();},45000);window.addEventListener('focus',scheduleRefresh);await openDeeplink();}catch(e){console.error(e);lastError=e.message||'Verbindungsfehler';mode='error';render();}}
+async function boot(){mode='loading';render();try{await API.connect();user=await API.getUser();if(!user){mode=inviteCode?'register':'login';render();if(inviteCode)loadInvitePreview();return;}await fetchData();API.isPushSubscribed().then(v=>{pushEnabled=v;}).catch(()=>{});unsubscribe?.();unsubscribe=API.subscribe(scheduleRefresh);setInterval(()=>{if(user&&document.visibilityState==='visible')scheduleRefresh();},45000);window.addEventListener('focus',scheduleRefresh);await openDeeplink();}catch(e){console.error(e);lastError=e.message||'Verbindungsfehler';mode='error';render();}}
 async function work(op,success,after){if(loadingAction)return;loadingAction=true;try{const result=await op();if(user)await fetchData();if(after)await after(result);if(success)toast(success);return result;}catch(err){console.error(err);toast('Nicht gespeichert: '+(err?.message||'Unbekannter Fehler'));}finally{loadingAction=false;}}
 async function openDeeplink(){const params=new URLSearchParams(location.search),ev=params.get('event'),p=params.get('person');if(ev&&data.events.some(e=>e.id===ev))showModal('event',ev);else if(p&&peopleById.has(p))showModal('person',p);if(ev||p)history.replaceState(null,'',location.pathname);}
 
@@ -140,11 +146,12 @@ function homeView(){
     <button type="button" class="birthday-quick" data-action="birthdays" title="Geburtstage ansehen" aria-label="Geburtstage ansehen${imminent?`, ${imminent} bald`:''}">${icon('gift',23)}${imminent?`<i aria-hidden="true">${imminent}</i>`:''}</button></div>
    </div><div class="welcome-sculpt" aria-hidden="true"><span class="sculpt-glow"></span>${icon('heart',75)}</div>
  </section>
+ ${typeof Notification!=='undefined'&&Notification.permission!=='granted'&&localStorage.getItem('fz13-hide-push')!=='yes'?`<div class="push-onboarding">${icon('bell',21)}<span><b>Keine Termine verpassen</b><small>Erinnerungen direkt aufs Smartphone bekommen</small></span><button type="button" data-action="push-guide">Aktivieren</button><button type="button" class="push-dismiss" aria-label="Hinweis ausblenden" data-action="push-dismiss">${icon('x',16)}</button></div>`:''}
  ${installHint?`<div class="install-hint">${icon('sparkle',20)} <span>Familienzeit wie eine App nutzen</span><button data-action="install-guide">Installieren</button><button class="install-hint-dismiss" aria-label="Hinweis ausblenden" data-action="install-dismiss">${icon('x',17)}</button></div>`:''}
  ${pending.length?`<button class="pending-action" type="button" data-action="pending"><span class="pending-action-icon">${icon('bell',25)}</span><span class="pending-action-copy"><strong>${pending.length===1?'Eine Rückmeldung offen':`${pending.length} Rückmeldungen offen`}</strong><small>Tippen und antworten</small></span>${icon('chevron',24)}</button>`:''}
  <div class="dashboard-section-head"><div><h2>Nächste Termine</h2><p>Unsere gemeinsamen Pläne</p></div><button class="dashboard-filter" type="button" data-action="home-filter" aria-label="Termine filtern, aktuell ${currentFilter}">${currentFilter} ${icon('down',18)}</button></div>
  <section class="event-list dashboard-events" aria-label="Anstehende Familientermine">
- ${visible.length?visible.map(eventCard).join(''):`<div class="empty-state home-empty">${icon('calendar',34)}<h3>${homeFilter==='all'?'Noch keine Termine':'Keine passenden Termine'}</h3><p>${homeFilter==='all'?'Plane euren nächsten gemeinsamen Moment.':'Wechsle zu „Alle“, um alle Termine zu sehen.'}</p>${homeFilter==='all'?`<button class="btn primary" data-action="new-event">Termin erstellen</button>`:''}</div>`}
+ ${visible.length?visible.map((e,i)=>eventCard(e,i===0)).join(''):`<div class="empty-state home-empty">${icon('calendar',34)}<h3>${homeFilter==='all'?'Noch keine Termine':'Keine passenden Termine'}</h3><p>${homeFilter==='all'?'Plane euren nächsten gemeinsamen Moment.':'Wechsle zu „Alle“, um alle Termine zu sehen.'}</p>${homeFilter==='all'?`<button class="btn primary" data-action="new-event">Termin erstellen</button>`:''}</div>`}
  </section>`;
 }
 function birthdayOverview(){
@@ -154,14 +161,14 @@ function birthdayOverview(){
 function birthdayMini(p){const b=p.next;return `<button class="birthday-mini" data-action="person" data-id="${p.id}" aria-label="Geburtstag von ${safe(p.display_name)} ansehen"><span class="birthday-photo">${avatar(p,'lg')}<i>${icon('gift',15)}</i></span><span class="birthday-copy"><strong>${safe(p.display_name)}</strong><small>${fmt(b.date,{day:'numeric',month:'short'})}</small><span class="tiny-pill">${b.days===0?'Heute!':b.days===1?'Morgen':`In ${b.days} Tagen`}</span></span></button>`;}
 function themeClass(e){return `category-${/^(coffee|birthday|dining|gathering|party|trip|holiday|other)$/.test(e.kind)?e.kind:'other'} cover-${/^(soft|illustrated|warm)$/.test(e.cover_style)?e.cover_style:'illustrated'}`;}
 function responseLabel(r){return !r?'Antwort offen':r.status==='yes'?'Zugesagt':r.status==='no'?'Abgesagt':'Vielleicht';}
-function eventCard(e){
+function eventCard(e,featured=false){
  const own=me(),r=responseFor(e.id,own.id),invited=eventInvites(e.id).includes(own.id);
  const host=accountsByUser.get(e.creator_user_id),hostName=host?.display_name||'Familie';
  const status=!invited?'':r?.status==='yes'?'Zugesagt':r?.status==='no'?'Abgesagt':r?.status==='maybe'?'Vielleicht':'Antwort offen';
  const statusClass=r?.status||'open',statusIcon=r?.status==='yes'?'check':r?.status==='no'?'x':r?.status==='maybe'?'info':'clock';
  const comments=data.comments.filter(c=>c.event_id===e.id).length;
  const attendees=guestsTotal(e);
- return `<button class="event-card family-event-card ${themeClass(e)} card-color-${safe(e.card_color||'blue')}" type="button" data-action="event" data-id="${e.id}" aria-label="${safe(e.title)}, ${safe(fmt(e.event_date))}, ${safe(String(e.event_time).slice(0,5))} Uhr, Details öffnen">
+ return `<button class="event-card family-event-card ${featured?'is-next-event':''} ${themeClass(e)} card-color-${safe(e.card_color||'blue')}" type="button" data-action="event" data-id="${e.id}" aria-label="${safe(e.title)}, ${safe(fmt(e.event_date))}, ${safe(String(e.event_time).slice(0,5))} Uhr, Details öffnen">
   <span class="family-event-watermark" aria-hidden="true">${icon(typeIcon(e.kind),110)}</span>
   <span class="family-event-main">
    <span class="family-date-tile"><span class="family-date-month">${monthShort(e.event_date)}</span><strong>${+e.event_date.slice(8,10)}</strong><span class="family-date-weekday">${weekday(e.event_date)}</span><span class="family-date-symbol" aria-hidden="true">${icon(typeIcon(e.kind),21)}</span></span>
@@ -211,6 +218,7 @@ function renderModal(){if(!modal)return;if(modal.type==='new')storeEventDraft();
  else if(type==='birthdays'){title='Geburtstage';eyebrow='UNSERE FAMILIE';body=birthdayOverview();}
  else if(type==='invite'){const p=person(id);title='Einladung für '+p.display_name;eyebrow='EINFACHER ERSTZUGANG';const link=invitationLink(modal.code||'');body=`<p class="form-help">${safe(p.display_name)} öffnet den Link und richtet das eigene Passwort ein. Das Profil wird automatisch mit eurem gemeinsamen Kalender verbunden.</p><div class="invitation-code">${safe(link)}</div><button class="btn primary wide" data-action="share-invite">${icon('send',19)} Einladung teilen</button><button class="btn secondary wide" data-action="copy-invite">${icon('check',19)} Link kopieren</button><p class="form-help notice">Der Link gilt 14 Tage und lässt sich nur einmal verwenden. Bitte nur der vorgesehenen Person schicken.</p>`;}
  else if(type==='install'){title='Familienzeit installieren';eyebrow='AUF DEINEM HANDY';body=installGuide();}
+ else if(type==='push-guide'){title='Benachrichtigungen';eyebrow='AUF DEINEM SMARTPHONE';body=pushGuide();}
  $('#modal-root').innerHTML=modalFrame(title,body,eyebrow);if(type==='new')restoreEventDraft();
 }
 function colorPicker(selected='blue'){
@@ -240,6 +248,7 @@ function reminderPreference(eventId){return data.event_reminder_preferences.find
 function reminderSummary(eventId){
  const pref=reminderPreference(eventId);if(!pref)return 'Keine persönliche Erinnerung';
  const days=[...(pref.days_before||[])].sort((a,b)=>b-a),pieces=days.map(d=>d===0?'am Termintag':d===1?'1 Tag vorher':d+' Tage vorher');
+ if(pref.repeat_every_days)pieces.unshift(pref.repeat_every_days===7?'wöchentlich':pref.repeat_every_days===14?'alle 2 Wochen':'alle 30 Tage');
  if(pref.exact_at)pieces.push('eigener Zeitpunkt');
  return pieces.length?pieces.join(' · '):'Keine persönliche Erinnerung';
 }
@@ -249,11 +258,14 @@ function personalReminderForm(e){
  const periods=[[14,'14 Tage vorher'],[7,'7 Tage vorher'],[3,'3 Tage vorher'],[1,'1 Tag vorher'],[0,'Am Termintag']];
  return `<div class="reminder-intro"><div class="reminder-intro-icon">${icon('bell',24)}</div><div><strong>${safe(e.title)}</strong><span>${safe(fmt(e.event_date))} · ${safe(String(e.event_time).slice(0,5))} Uhr</span></div></div>
  <form id="reminder-form" data-id="${safe(e.id)}" class="stack reminder-form">
- <fieldset class="field-group"><legend>Wann möchtest du erinnert werden?</legend><p class="form-help">Wähle einen oder mehrere Zeitabstände.</p>
- <div class="reminder-choices">${periods.map(([d,label])=>`<label class="reminder-choice"><input name="days_before" value="${d}" type="checkbox" ${selected.includes(d)?'checked':''}><span>${icon('calendar',19)} ${label}</span></label>`).join('')}</div></fieldset>
+ <details class="reminder-dropdown" ${selected.length?'open':''}><summary>${icon('calendar',20)} <span><strong>Erinnere mich vor dem Termin</strong><small>${selected.length?selected.length+' Zeitpunkte ausgewählt':'Zeitpunkte auswählen'}</small></span>${icon('down',20)}</summary>
+ <div class="reminder-choices">${periods.map(([d,label])=>`<label class="reminder-choice"><input name="days_before" value="${d}" type="checkbox" ${selected.includes(d)?'checked':''}><span>${label}</span></label>`).join('')}</div></details>
+ <label class="field">Zusätzlich regelmäßig erinnern
+ <select class="input" name="repeat_every_days"><option value="">Keine Wiederholung</option>${[[7,'Einmal pro Woche'],[14,'Alle zwei Wochen'],[30,'Alle 30 Tage']].map(([n,label])=>`<option value="${n}" ${pref?.repeat_every_days===n?'selected':''}>${label}</option>`).join('')}</select></label>
  <label class="field">Uhrzeit für die ausgewählten Erinnerungen<input class="input" type="time" name="remind_time" value="${time}" required></label>
  <label class="field">Oder zusätzlich ein genauer Zeitpunkt <small>(optional)</small><input class="input" type="datetime-local" name="exact_at" value="${safe(remindLocalInput(pref?.exact_at))}"></label>
- <p class="form-help reminder-privacy">${icon('shield',17)} Vergangene Erinnerungszeitpunkte werden nicht nachträglich ausgelöst. Nur du erhältst diese Erinnerungen. Sie erscheinen automatisch unter der Glocke. Geräte-Hinweise werden zugestellt, wenn Familienzeit geöffnet ist; Push bei geschlossener App folgt noch.</p>
+ <p class="form-help reminder-privacy">${icon('shield',17)} Die Intervalle lassen sich kombinieren. Regelmäßige Erinnerungen beginnen nach der ersten gewählten Zeitspanne und enden spätestens mit dem Termin. Nur du erhältst deine persönlichen Hinweise.</p>
+ <button type="button" class="btn secondary wide" data-action="push-guide">${icon('bell',18)} Smartphone-Benachrichtigungen einrichten</button>
  <button class="btn primary wide" type="submit">${icon('check',19)} Erinnerung speichern</button>
  ${pref?`<button class="btn secondary wide" type="button" data-action="clear-reminders" data-id="${safe(e.id)}">${icon('x',18)} Alle Erinnerungen ausschalten</button>`:''}
  <button class="btn secondary wide" type="button" data-action="event" data-id="${safe(e.id)}">Zurück zum Termin</button></form>`;
@@ -275,7 +287,7 @@ function eventDetail(e){
  <div>${icon('calendar',21)} <span>Antwortfrist: <b>${safe(fmt(e.response_deadline||e.event_date))}</b></span></div></div>
  ${e.status==='active'?`<button type="button" class="personal-reminder-entry" data-action="reminders" data-id="${safe(e.id)}"><span class="reminder-symbol">${icon('bell',23)}</span><span><strong>Meine Terminerinnerungen</strong><small>${safe(reminderSummary(e.id))}</small></span>${icon('chevron',22)}</button>`:''}
  ${e.status==='active'&&invited?`<section class="detail-panel"><h3>Deine Rückmeldung</h3><p class="form-help">${ownResponse?`Du hast „${responseLabel(ownResponse)}“ ausgewählt. Du kannst deine Antwort ändern.`:'Du hast noch nicht geantwortet. Was passt für dich?'}</p><div class="rsvp-actions"><button class="rsvp-btn yes ${ownResponse?.status==='yes'?'selected':''}" data-action="respond" data-id="${e.id}" data-response="yes">${icon('check',25)} Zusagen</button><button class="rsvp-btn maybe ${ownResponse?.status==='maybe'?'selected':''}" data-action="respond" data-id="${e.id}" data-response="maybe">${icon('info',25)} Vielleicht</button><button class="rsvp-btn no ${ownResponse?.status==='no'?'selected':''}" data-action="respond" data-id="${e.id}" data-response="no">${icon('x',25)} Absagen</button></div>
- ${ownResponse?.status==='yes'?`<h4>Wer kommt mit?</h4><p class="form-help">Du bist automatisch dabei. Jede Person wird insgesamt nur einmal gezählt.</p><div class="companion-list">${data.people.filter(p=>p.id!==own.id).map(p=>`<label class="companion-person">${avatar(p,'sm')}<span>${safe(p.display_name)}</span><input type="checkbox" data-action="companion" data-event="${e.id}" data-person="${p.id}" ${yourGuests.includes(p.id)?'checked':''}></label>`).join('')}</div>`:''}</section>`:''}
+ ${ownResponse?.status==='yes'?`<h4>Wer kommt aus deinem Haushalt mit?</h4><p class="form-help">Du bist automatisch dabei. Du kannst nur für deine eigenen Familienangehörigen mitentscheiden.</p><div class="companion-list">${data.people.filter(p=>p.id!==own.id&&p.household_key===own.household_key).map(p=>`<label class="companion-person">${avatar(p,'sm')}<span>${safe(p.display_name)}</span><input type="checkbox" data-action="companion" data-event="${e.id}" data-person="${p.id}" ${yourGuests.includes(p.id)?'checked':''}></label>`).join('')||'<p class="form-help">Für deinen Haushalt sind keine weiteren Personen eingetragen.</p>'}</div>`:''}</section>`:''}
  <section class="detail-panel"><h3>${icon('users',21)} Dabei · ${confirmed.size} ${confirmed.size===1?'Person':'Personen'}</h3>${confirmed.size?`<div class="attendee-avatars">${[...confirmed].map(id=>`<span>${avatar(id,'sm')}${safe(person(id).display_name)}</span>`).join('')}</div>`:'<p class="form-help">Noch keine Zusagen.</p>'}
  ${missing.length?`<p class="form-help"><b>Antwort offen:</b> ${missing.map(p=>safe(p.display_name)).join(', ')}</p>`:''}
  ${hostSelf&&missing.length&&e.status==='active'?`<div class="nudge-list">${missing.map(p=>`<button class="btn secondary small" data-action="nudge" data-id="${e.id}" data-person="${p.id}">${icon('bell',16)} ${safe(p.display_name)} erinnern</button>`).join('')}</div>`:''}</section>
@@ -303,8 +315,26 @@ function personDetail(p){
  ${p.birth_date?`<button class="btn primary wide" data-action="birthday-event" data-id="${p.id}">${icon('plus',20)} Einladung zum Geburtstag erstellen</button>`:''}
  ${canEdit?`<section class="detail-panel"><h3>${icon('edit',20)} Profil bearbeiten</h3><form id="profile-form" data-id="${p.id}" class="stack"><label class="field">Geburtstag<input class="input" type="date" name="birthdate" max="${localDate()}" value="${p.birth_date||''}"></label><p class="form-help">Du kannst einen Geburtstag jederzeit nachtragen oder ändern.</p><label class="field">Profilbild <small>(optional)</small><input class="input file-input" type="file" name="avatar" accept="image/jpeg,image/png,image/webp,image/heic,image/heif"></label><p class="form-help" id="avatar-file-status" aria-live="polite">${selectedAvatarFiles.get(p.id)?'Ausgewählt: '+safe(selectedAvatarFiles.get(p.id).name):'Noch kein Foto ausgewählt.'}</p><p class="form-help">Das Bild wird quadratisch zugeschnitten und privat gespeichert. Maximal 8 MB Originalgröße.</p><button class="btn primary wide" type="submit">${icon('check',19)} Profil speichern</button></form></section>`:''}`;
 }
-function accountView(){const own=me(),supported=('Notification' in window);return `<div class="account-profile">${avatar(own,'xl')}<div><h3>${safe(own.display_name)}</h3><p>${safe(user?.email||'Persönlich angemeldet')}</p></div></div><div class="account-section"><button class="account-link" data-action="person" data-id="${own.id}">${icon('camera',23)} <span>Mein Profil & Bild</span>${icon('chevron',20)}</button><button class="account-link" data-action="install-guide">${icon('plus',23)} <span>App auf diesem Gerät installieren <small>Android & iPhone – direkt auf den Startbildschirm</small></span>${icon('chevron',20)}</button><button class="account-link" data-action="enable-notifications">${icon('bell',23)} <span>Geräte-Benachrichtigungen <small>${supported?Notification.permission==='granted'?'Für die geöffnete App aktiviert':'Aktivieren':'In diesem Browser nicht verfügbar'}</small></span>${icon('chevron',20)}</button></div><p class="form-help notice"><b>Wichtig:</b> Terminerinnerungen werden bereits serverseitig in der App gespeichert. Geräte-Benachrichtigungen funktionieren derzeit, wenn die App geöffnet ist. Push bei geschlossener App folgt noch.</p><p class="group-proof">${icon('users',17)} Gemeinsamer Familienkalender · ${data.people.length} Personen</p><p class="app-version">Familienzeit Version 1.2</p><button class="btn secondary wide" data-action="logout">${icon('logout',19)} Abmelden</button>`;}
-function notificationsView(){return `${data.notifications.length?data.notifications.map(n=>`<button class="notification-row ${!n.read_at?'unread':''}" data-action="notification-open" data-id="${n.id}"><span class="notification-symbol">${icon(n.related_person_id?'gift':n.kind==='nudge'?'bell':'calendar',24)}</span><span><strong>${safe(n.related_person_id?'Geburtstag':n.kind==='invited'?'Neue Einladung':n.kind==='rescheduled'?'Termin verschoben':n.kind==='cancelled'?'Termin abgesagt':n.kind==='deadline_reminder'?'Antwortfrist läuft ab':n.kind==='nudge'?'Erinnerung':n.kind.startsWith('personal_event_')?'Deine Terminerinnerung':'Familien-Nachricht')}</strong><p>${safe(n.message)}</p><small>${new Date(n.created_at).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'})}</small></span>${icon('chevron',18)}</button>`).join(''):'<div class="empty-state compact">Hier erscheinen eure Einladungen, Erinnerungen und Änderungen.</div>'}<p class="form-help notice">Die App prüft jeden Morgen, welche Geburtstage und Antwortfristen anstehen.</p>`;}
+function accountView(){const own=me(),supported=('Notification' in window);return `<div class="account-profile">${avatar(own,'xl')}<div><h3>${safe(own.display_name)}</h3><p>${safe(user?.email||'Persönlich angemeldet')}</p></div></div><div class="account-section"><button class="account-link" data-action="person" data-id="${own.id}">${icon('camera',23)} <span>Mein Profil & Bild</span>${icon('chevron',20)}</button><button class="account-link" data-action="install-guide">${icon('plus',23)} <span>App auf diesem Gerät installieren <small>Android & iPhone – direkt auf den Startbildschirm</small></span>${icon('chevron',20)}</button><button class="account-link" data-action="push-guide">${icon('bell',23)} <span>Push-Benachrichtigungen <small>${pushEnabled?'Auf diesem Gerät eingerichtet':supported?Notification.permission==='denied'?'In den Geräteeinstellungen freigeben':'Jetzt einrichten':'Browser unterstützt keine Benachrichtigungen'}</small></span>${icon('chevron',20)}</button></div><p class="form-help notice">In der Glocke siehst du Einladungen, Kommentare und Erinnerungen. Mit eingerichteten Push-Benachrichtigungen können Hinweise auch bei geschlossener App ankommen.</p><p class="group-proof">${icon('users',17)} Gemeinsamer Familienkalender · ${data.people.length} Personen</p><p class="app-version">Familienzeit Version 1.3</p><button class="btn secondary wide" data-action="logout">${icon('logout',19)} Abmelden</button>`;}
+function notificationActor(n){
+ const e=data.events.find(e=>e.id===n.event_id);
+ return accountsByUser.get(n.actor_user_id)||accountsByUser.get(n.kind==='invited'||n.kind==='rescheduled'||n.kind==='cancelled'?e?.creator_user_id:null)||null;
+}
+function notificationHeading(n){
+ const name=notificationActor(n)?.display_name;
+ if(n.kind==='comment')return name?name+' hat kommentiert':'Neuer Kommentar';
+ if(n.kind==='invited')return name?name+' hat eingeladen':'Neue Einladung';
+ if(n.kind==='rescheduled')return name?name+' hat verschoben':'Termin verschoben';
+ if(n.kind==='cancelled')return name?name+' hat abgesagt':'Termin abgesagt';
+ if(n.kind==='updated')return name?name+' hat den Termin geändert':'Termin geändert';
+ if(n.related_person_id)return 'Geburtstag';
+ if(n.kind==='deadline_reminder')return 'Antwortfrist läuft ab';
+ if(n.kind==='nudge')return 'Erinnerung';
+ if(n.kind?.startsWith('personal_event_'))return 'Deine Terminerinnerung';
+ return 'Neuigkeit aus der Familie';
+}
+function notificationsView(){const shown=visibleNotifications();return `${shown.length?shown.map(n=>`<button class="notification-row ${!n.read_at?'unread':''}" data-action="notification-open" data-id="${n.id}"><span class="notification-symbol">${icon(n.related_person_id?'gift':n.kind==='comment'?'message':n.kind==='nudge'?'bell':'calendar',24)}</span><span><strong>${safe(notificationHeading(n))}</strong><p>${safe(n.message)}</p><small>${new Date(n.created_at).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'})}</small></span>${icon('chevron',18)}</button>`).join(''):'<div class="empty-state compact">Hier erscheinen Einladungen, Kommentare und Erinnerungen.</div>'}<p class="form-help notice">Persönliche Erinnerungen enden automatisch nach dem Termin. Für Hinweise auf dem Sperrbildschirm kannst du die Geräte-Benachrichtigungen aktivieren.</p>`;}
+
 function pendingView(){const list=pendingEvents();return `<p class="form-help">${list.length?'Diese Einladungen warten noch auf deine Antwort. Wähle einen Termin, um direkt zuzusagen oder abzusagen.':'Du hast aktuell alle Einladungen beantwortet.'}</p><div class="event-list">${list.map(eventCard).join('')}</div>`;}
 
 function currentForm(){return $('#modal-root form');}
@@ -375,19 +405,39 @@ async function applyResponse(id,status){const e=data.events.find(x=>x.id===id);i
  await work(()=>API.respond(id,status,persons),'Deine Rückmeldung wurde gespeichert.',async()=>showModal('event',id));
 }
 async function updateCompanions(input){const id=input.dataset.event,e=data.events.find(x=>x.id===id);if(!e)return;
- const ids=[me().id,...[...$('#modal-root').querySelectorAll('input[data-action="companion"]:checked')].map(x=>x.dataset.person)];
+ const allowed=new Set(data.people.filter(p=>p.household_key===me().household_key).map(p=>p.id));
+ const ids=[me().id,...[...$('#modal-root').querySelectorAll('input[data-action="companion"]:checked')].map(x=>x.dataset.person)].filter(x=>allowed.has(x));
  await work(()=>API.respond(id,'yes',[...new Set(ids)]),'Begleitpersonen aktualisiert.',async()=>showModal('event',id));
 }
 async function readNotification(id){const n=data.notifications.find(x=>x.id===id);if(!n)return;
  await work(()=>API.markRead([id]),null,async()=>{if(n.related_person_id)showModal('person',n.related_person_id);else if(n.event_id&&data.events.some(e=>e.id===n.event_id))showModal('event',n.event_id);else showModal('notifications');});
 }
 async function openNotifications(){showModal('notifications');const ids=unread().map(n=>n.id);if(ids.length)await work(()=>API.markRead(ids),null,async()=>showModal('notifications'));}
+function toPushKey(base64){const pad='='.repeat((4-base64.length%4)%4);const raw=atob((base64+pad).replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from(raw,c=>c.charCodeAt(0));}
 async function enableNotifications(){
- if(!('Notification' in window)){toast('Dieser Browser unterstützt keine Geräte-Benachrichtigungen.');return;}
- try{const permission=await Notification.requestPermission();if(permission==='granted'){toast('Geräte-Mitteilungen aktiviert, solange Familienzeit geöffnet ist.');}else toast('Keine Erlaubnis erteilt. Du siehst Mitteilungen weiterhin in der App.');if(modal?.type==='account')renderModal();}
- catch(e){toast('Die Benachrichtigungen konnten nicht aktiviert werden.');}
+ if(!('Notification' in window)||!('serviceWorker' in navigator)||!('PushManager' in window)){
+  toast('Dieser Browser unterstützt keine Push-Benachrichtigungen.');return;
+ }
+ if(/iPad|iPhone|iPod/.test(navigator.userAgent)&&!isInstalled()){
+  toast('Bitte Familienzeit auf dem iPhone zuerst zum Home-Bildschirm hinzufügen.');showModal('push-guide');return;
+ }
+ try{
+  if(Notification.permission==='denied'){showModal('push-guide');toast('Bitte Benachrichtigungen zuerst in den Geräteeinstellungen erlauben.');return;}
+  const permission=Notification.permission==='granted'?'granted':await Notification.requestPermission();
+  if(permission!=='granted'){toast('Die Erlaubnis wurde nicht erteilt.');showModal('push-guide');return;}
+  const cfg=await API.getPushConfig();
+  const reg=await navigator.serviceWorker.ready;
+  let sub=await reg.pushManager.getSubscription();
+  if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:toPushKey(cfg.public_key)});
+  const json=sub.toJSON();
+  if(!json.endpoint||!json.keys?.p256dh||!json.keys?.auth)throw Error('Der Browser hat keine gültige Push-Verbindung zurückgegeben.');
+  await API.savePushSubscription(user.id,json);
+  pushEnabled=true;localStorage.setItem('fz13-hide-push','yes');
+  toast('Push-Benachrichtigungen auf diesem Gerät eingerichtet.');
+  if(modal?.type==='push-guide'||modal?.type==='account')renderModal();else render();
+ }catch(e){console.error(e);toast('Push konnte nicht eingerichtet werden: '+(e?.message||'Unbekannter Fehler'));}
 }
-async function notifyWhileOpen(newNotifications){if(!('Notification' in window)||Notification.permission!=='granted'||!('serviceWorker' in navigator))return;
+async function notifyWhileOpen(newNotifications){newNotifications=newNotifications.filter(n=>!isReminderExpired(n));if(!('Notification' in window)||Notification.permission!=='granted'||!('serviceWorker' in navigator))return;
  const seenKey='familienzeit-notified-08';let seen=[];try{seen=JSON.parse(localStorage.getItem(seenKey)||'[]')}catch{}
  const seenSet=new Set(seen);
  for(const n of newNotifications.filter(n=>!n.read_at).slice(0,3)){
@@ -400,6 +450,17 @@ async function notifyWhileOpen(newNotifications){if(!('Notification' in window)|
 function isInstalled(){return window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;}
 function invitationLink(code){const u=new URL('./index.html',location.href);u.searchParams.set('invite',code);return u.toString();}
 async function loadInvitePreview(){if(!inviteCode)return;try{const r=await API.previewInvite(inviteCode);invitePerson=r.person||'';if(mode==='register'){const el=document.getElementById('invite-preview');if(el)el.textContent='Dein Profil: '+invitePerson;}}catch(e){invitePerson='';const el=document.getElementById('invite-preview');if(el)el.textContent='Code ungültig oder abgelaufen. Bitte neuen Link anfordern.';}}
+function pushGuide(){
+ const ios=/iPhone|iPad|iPod/.test(navigator.userAgent),installed=isInstalled();
+ const permission=typeof Notification==='undefined'?'unsupported':Notification.permission;
+ const supported=('serviceWorker' in navigator)&&('PushManager' in window)&&permission!=='unsupported';
+ return `<div class="push-guide"><div class="push-guide-heading">${icon('bell',27)}<b>Einladungen, Kommentare und Termine im Blick</b></div><p>Familienzeit kann dich auf deinem Smartphone benachrichtigen, auch wenn die App geschlossen ist. Das muss jedes Familienmitglied einmal auf dem eigenen Gerät erlauben.</p>
+ ${ios&&!installed?`<p class="push-guide-warning">Auf dem iPhone zuerst Familienzeit über Safari zum Home-Bildschirm hinzufügen und über das neue Symbol öffnen.</p><button class="btn primary wide" type="button" data-action="install-guide">${icon('plus',18)} Installation anzeigen</button>`:''}
+ ${permission==='denied'?`<p class="push-guide-warning">Benachrichtigungen sind blockiert. ${ios?'Öffne Einstellungen → Mitteilungen → Familienzeit und erlaube die Mitteilungen.':'Öffne Einstellungen → Apps → Familienzeit (oder Chrome) → Benachrichtigungen → Zulassen.'} Danach erneut hier aktivieren.</p>`:''}
+ ${!supported?`<p class="push-guide-warning">Dieser Browser bietet derzeit keine vollständige Push-Unterstützung. Bitte Chrome auf Android oder die installierte Familienzeit-App auf iOS verwenden.</p>`:''}
+ ${supported&&!(ios&&!installed)?`<button class="btn primary wide" type="button" data-action="enable-notifications">${icon('bell',19)} ${pushEnabled?'Push erneut prüfen':'Benachrichtigungen aktivieren'}</button>`:''}
+ <p class="form-help">Die Freigabe erfolgt über den Systemdialog deines Geräts. Du kannst sie später in den Einstellungen widerrufen.</p></div>`;
+}
 function installGuide(){const ios=/iPad|iPhone|iPod/.test(navigator.userAgent),installed=isInstalled();return `<div class="install-steps">${installed?`<div class="install-complete">${icon('check',24)} Familienzeit ist auf diesem Gerät bereits als App geöffnet.</div>`:ios?`<p>Auf dem iPhone dauert die Installation nur wenige Sekunden:</p><div><b>1</b><span>Link in Safari öffnen.</span></div><div><b>2</b><span>Auf <strong>Teilen</strong> (Quadrat mit Pfeil) tippen.</span></div><div><b>3</b><span><strong>Zum Home-Bildschirm</strong> → <strong>Hinzufügen</strong>.</span></div>`:`<p>Installiere Familienzeit direkt auf deinem Android-Smartphone:</p><div><b>1</b><span>In Chrome das Menü <strong>⋮</strong> öffnen.</span></div><div><b>2</b><span><strong>App installieren</strong> oder <strong>Zum Startbildschirm hinzufügen</strong> wählen.</span></div><div><b>3</b><span>Bestätigen und anschließend das Familienzeit-Symbol öffnen.</span></div>`}<p class="form-help">Keine App-Store-Anmeldung nötig. Dein Konto und eure Termine werden synchronisiert.</p>${!installed?`<button class="btn primary wide" data-action="install-now">${icon('plus',20)} ${ios?'Anleitung verstanden':'Jetzt installieren'}</button>`:''}</div>`;}
 function draftKey(){return 'familienzeit-draft-v11-'+(user?.id||'local');}
 function storeEventDraft(){const form=$('#new-event-form');if(!form||!user)return;const d={};for(const el of form.querySelectorAll('[name]')){if(el.type==='checkbox'){(d[el.name]??=[]).push([el.value,!!el.checked]);}else if(el.type==='radio'){if(el.checked)d[el.name]=el.value;}else d[el.name]=el.value;}try{localStorage.setItem(draftKey(),JSON.stringify({at:Date.now(),fields:d}));}catch{}}
@@ -415,6 +476,8 @@ document.addEventListener('click',async ev=>{
  if(a==='begin-invite'){mode='register';render();return;}
  if(a==='back-to-login'){mode='login';render();return;}
  if(a==='install-guide'){localStorage.setItem('fz11-show-install','no');showModal('install');return;}
+ if(a==='push-guide'){showModal('push-guide');return;}
+ if(a==='push-dismiss'){localStorage.setItem('fz13-hide-push','yes');render();return;}
  if(a==='install-dismiss'){localStorage.setItem('fz11-show-install','no');render();return;}
  if(a==='install-now'){if(installEvent){installEvent.prompt();await installEvent.userChoice;installEvent=null;closeModal();}else if(/iPad|iPhone|iPod/.test(navigator.userAgent))toast('Teilen → Zum Home-Bildschirm → Hinzufügen');else toast('Chrome-Menü ⋮ → App installieren');return;}
  if(a==='logout'){await work(async()=>{unsubscribe?.();unsubscribe=null;await API.logout();user=null;mode='login';closeModal();render();});return;}
@@ -460,13 +523,14 @@ document.addEventListener('submit',async ev=>{
   const values=new FormData(form);
   const days=[...form.querySelectorAll('input[name="days_before"]:checked')].map(x=>Number(x.value));
   const remindTime=String(values.get('remind_time')||'09:00');
+  const repeatDays=Number(values.get('repeat_every_days')||0)||null;
   const exact=String(values.get('exact_at')||'');
   const when=exact?new Date(exact):null;
   const eventTime=new Date(e.event_date+'T'+String(e.event_time).slice(0,5)+':00');
   if(exact&&(!when||Number.isNaN(when.getTime())||when<=new Date()||when>=eventTime)){toast('Der eigene Erinnerungszeitpunkt muss in der Zukunft und vor dem Termin liegen.');return;}
   if(days.includes(0)&&remindTime>=String(e.event_time).slice(0,5)){toast('Die Erinnerung am Termintag muss vor Beginn des Termins liegen.');return;}
-  if(!days.length&&!exact){await work(()=>API.deleteReminders(eventId),'Erinnerungen ausgeschaltet.',async()=>showModal('event',eventId));return;}
-  await work(()=>API.saveReminders(eventId,user.id,{days_before:days,remind_time:remindTime,exact_at:when?.toISOString()||null,updated_at:new Date().toISOString()}),'Deine Erinnerungen wurden gespeichert.',async()=>showModal('event',eventId));
+  if(!days.length&&!exact&&!repeatDays){await work(()=>API.deleteReminders(eventId),'Erinnerungen ausgeschaltet.',async()=>showModal('event',eventId));return;}
+  await work(()=>API.saveReminders(eventId,user.id,{days_before:days,repeat_every_days:repeatDays,remind_time:remindTime,exact_at:when?.toISOString()||null,updated_at:new Date().toISOString()}),'Deine Erinnerungen wurden gespeichert.',async()=>showModal('event',eventId));
  }
  else if(id==='new-event-form')await saveNewEvent(form);
  else if(id==='edit-event-form')await saveExistingEvent(form);
@@ -498,7 +562,7 @@ document.addEventListener('change',async ev=>{if(ev.target.closest('#new-event-f
 });
 // Ein Update wird auch in einem bereits geoeffneten PWA-Fenster sichtbar angeboten.
 // Anders als beim automatischen Reload bleiben ungespeicherte Eingaben unangetastet.
-const APP_VERSION=document.querySelector('meta[name="familienzeit-version"]')?.content||'1.2';
+const APP_VERSION=document.querySelector('meta[name="familienzeit-version"]')?.content||'1.3';
 let checkingVersion=false,availableVersion='';
 function updateNotice(version){
  availableVersion=version;

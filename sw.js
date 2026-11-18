@@ -1,6 +1,6 @@
-const VERSION='1.2';
+const VERSION='1.3';
 const CACHE='familienzeit-app-'+VERSION;
-const CORE=['./','./index.html','./app.js?v=120','./backend.js?v=120','./styles.css?v=120','./manifest.webmanifest?v=120','./icon.svg','./icon-180.png','./icon-192.png','./icon-512.png'];
+const CORE=['./','./index.html','./app.js?v=130','./backend.js?v=130','./styles.css?v=130','./manifest.webmanifest?v=130','./icon.svg','./icon-180.png','./icon-192.png','./icon-512.png'];
 self.addEventListener('install',e=>{
  e.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(CORE)).then(()=>self.skipWaiting()));
 });
@@ -47,8 +47,10 @@ self.addEventListener('notificationclick',e=>{
 });
 self.addEventListener('push',e=>{
  if(!e.data)return;let d;try{d=e.data.json()}catch{d={body:e.data.text()}};
- e.waitUntil(self.registration.showNotification('Familienzeit',{
-  body:String(d.body||'Es gibt Neuigkeiten in der Familie.').slice(0,180),icon:'./icon-192.png',badge:'./icon-192.png',data:{event:d.event||null,person:d.person||null}
+ let event=d.event||null,person=d.person||null;
+ if(d.url){try{const u=new URL(d.url,self.registration.scope);if(u.origin===self.location.origin){event=event||u.searchParams.get('event');person=person||u.searchParams.get('person');}}catch(_){}}
+ e.waitUntil(self.registration.showNotification(String(d.title||'Familienzeit'),{
+  body:String(d.body||'Es gibt Neuigkeiten in der Familie.').slice(0,180),icon:'./icon-192.png',badge:'./icon-192.png',tag:String(d.tag||'familienzeit'),data:{event,person}
  }));
 });
 self.addEventListener('message',e=>{if(e.data?.type==='SKIP_WAITING')self.skipWaiting();});
