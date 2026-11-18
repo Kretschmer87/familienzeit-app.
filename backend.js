@@ -1,4 +1,4 @@
-/* Familienzeit 1.3 · Supabase-Browserzugang · nur öffentlicher Publishable Key */
+/* Familienzeit 1.4 · Supabase-Browserzugang · nur öffentlicher Publishable Key */
 const PROJECT_URL='https://lzkousocxlswizkycrai.supabase.co';
 const PUBLIC_KEY='sb_publishable_W3sSqSCfTTc152DrXPPXSQ_QoSoLpGS';
 let client=null;
@@ -14,7 +14,7 @@ export async function getUser(){const result=await db().auth.getUser();if(result
 export async function login(email,password){ok(await db().auth.signInWithPassword({email,password}));}
 export async function logout(){ok(await db().auth.signOut());}
 export async function readAll(){
-  const names=['people','person_managers','events','event_invites','rsvps','rsvp_attendees','comments','alternatives','notifications','event_reminder_preferences'];
+  const names=['people','person_managers','events','event_invites','rsvps','rsvp_attendees','comments','alternatives','notifications','event_reminder_preferences','event_cohosts','event_poll_options','event_poll_ballots','event_poll_votes'];
   const pairs=await Promise.all(names.map(async name=>{
     let q=db().from(name).select('*');
     if(name==='notifications')q=q.order('created_at',{ascending:false}).limit(200);
@@ -23,7 +23,12 @@ export async function readAll(){
   }));
   return Object.fromEntries(pairs);
 }
-export async function createEvent(record){return ok(await db().rpc('create_family_event_colored',record));}
+export async function createEvent(record){return ok(await db().rpc('create_family_plan',record));}
+export async function votePoll(event_id,option_ids,cannot){return ok(await db().rpc('vote_family_poll',{p_event_id:event_id,p_option_ids:option_ids,p_cannot:cannot}));}
+export async function syncCohosts(event_id,add,remove){
+ if(add.length)ok(await db().from('event_cohosts').insert(add.map(person_id=>({event_id,person_id}))));
+ if(remove.length)ok(await db().from('event_cohosts').delete().eq('event_id',event_id).in('person_id',remove));
+}
 export async function updateEvent(id,fields){return ok(await db().from('events').update(fields).eq('id',id).select('id').single());}
 export async function replaceInvitees(id,add,remove){
   for(const person_id of remove)ok(await db().from('event_invites').delete().eq('event_id',id).eq('person_id',person_id));
@@ -44,7 +49,7 @@ export async function uploadAvatar(personId,blob){
 export async function avatarUrl(path){return ok(await db().storage.from('family-avatars').createSignedUrl(path,3600)).signedUrl;}
 export function subscribe(callback){
  const channel=db().channel('familienzeit-live-v08');
- for(const table of ['people','events','event_invites','rsvps','rsvp_attendees','comments','alternatives','notifications'])
+ for(const table of ['people','events','event_invites','rsvps','rsvp_attendees','comments','alternatives','notifications','event_cohosts','event_poll_options','event_poll_ballots','event_poll_votes'])
    channel.on('postgres_changes',{event:'*',schema:'public',table},callback);
  channel.subscribe();
  return ()=>db().removeChannel(channel);

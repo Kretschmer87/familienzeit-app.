@@ -640,3 +640,37 @@ body{background:radial-gradient(ellipse 400px 340px at 107% 50px,rgba(248,233,21
 .push-guide-heading svg{flex:none;color:#568cb8;}
 .push-guide p{margin:0;}.push-guide-warning{background:#fff7ea;border:1px solid #f1dfbd;border-radius:14px;padding:12px;}
 @media(max-width:380px){.family-event-card{padding:17px 15px 14px;}.dashboard-events .family-event-card.is-next-event{transform:none;}}
+
+/* Familienzeit 1.4: gezielte Ergänzungen im bestehenden blauen Design */
+[hidden]{display:none!important}
+.plan-type-choice{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.plan-type{position:relative;cursor:pointer;min-width:0}
+.plan-type>input{position:absolute;opacity:0;width:1px;height:1px}
+.plan-type>span{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:6px;padding:15px 9px;min-height:116px;border:1px solid #dbe7f0;background:linear-gradient(142deg,#fff,#f2f7fb);border-radius:19px;color:#4b789b;box-shadow:inset 0 1px 2px #fff,0 4px 10px rgba(71,107,143,.06);transition:.15s}
+.plan-type b{font-size:15px;color:#345c79}.plan-type small{font-size:12px;color:#678298;line-height:1.25}
+.plan-type input:checked+span{border-color:#70a5c8;background:linear-gradient(146deg,#e8f4fc,#f9fcff);box-shadow:inset 0 2px 4px #fff,0 7px 15px rgba(74,129,169,.14),0 0 0 1px #90b7cf}
+.plan-type input:focus-visible+span{outline:3px solid #7baed7;outline-offset:2px}
+.mode-field{border:1px solid #dceaf4;padding:16px 13px;border-radius:22px;background:linear-gradient(135deg,#f8fbfe,#fffdfb);min-width:0}
+.mode-field legend{font-size:17px;font-weight:780;color:#315c79;padding:0 6px}
+.poll-option-entry{display:grid;grid-template-columns:25px minmax(0,1.2fr) minmax(0,.8fr) 31px;gap:8px;align-items:end;background:#fff;border:1px solid #e1ebf1;border-radius:17px;padding:10px 9px;margin:9px 0;min-width:0}
+.poll-option-entry .field{min-width:0;font-size:13px;margin:0;gap:5px}.poll-option-entry .input{padding:9px 7px;min-height:47px;font-size:14px;max-width:100%}
+.poll-option-entry .poll-option-number{font-weight:800;color:#5a8bb2;font-size:15px;align-self:center;text-align:center}
+.poll-remove-option{height:40px;width:31px;align-self:center;border:0;border-radius:11px;background:#f1f6fa;color:#7891a5;display:grid;place-items:center}
+.cohost-picker{border:1px solid #d9e9f2;border-radius:18px;padding:12px;background:linear-gradient(135deg,#f9fcff,#fffdf9)}
+.cohost-picker legend{font-size:17px;font-weight:750;color:#355e7a;padding:0 4px}
+.cohost-option{min-width:0}
+.is-poll-card .family-date-tile{background:linear-gradient(155deg,#e4f1fc,#edf5fc)!important}
+.is-poll-card .family-date-month{font-size:11px;letter-spacing:.05em}
+.is-poll-card .family-event-category{color:#4b84a7;font-weight:850}
+.poll-vote-panel{background:linear-gradient(160deg,#fff,#f8fbfd)}
+.poll-vote-options{display:flex;flex-direction:column;gap:9px;margin:10px 0}
+.poll-vote-option{display:flex;align-items:center;gap:11px;min-height:68px;border-radius:17px;padding:13px 11px;border:1px solid #dce9f1;background:#f9fcfe;box-shadow:0 3px 8px rgba(69,117,148,.055);color:#385b75;cursor:pointer}
+.poll-vote-option:has(input:checked){background:linear-gradient(130deg,#e7f3fc,#f5f9fc);border-color:#8db6d5;box-shadow:0 4px 12px rgba(70,136,187,.11)}
+.poll-vote-option input,.poll-none-option input{accent-color:#4f8eb9;width:20px;height:20px;flex:0 0 20px}
+.poll-vote-copy{display:flex;flex-direction:column;gap:4px;flex:1;min-width:0}.poll-vote-copy strong{font-size:16px;line-height:1.3}.poll-vote-copy small{font-size:14px;color:#607f96}
+.poll-vote-count{font-size:13px;white-space:nowrap;color:#6084a1;font-weight:650}
+.poll-none-option{display:flex;gap:11px;align-items:center;min-height:54px;border-radius:15px;padding:12px;background:#f7f8fa;border:1px solid #e2e7eb;font-weight:670;color:#5c7181}
+.poll-voted-summary{background:#f3f8fb;border-radius:12px;padding:11px}
+.poll-readonly .poll-vote-option{cursor:default}.poll-readonly .poll-vote-option>b{white-space:nowrap;font-size:13px;color:#4f7c9d}
+.poll-finalized-banner{display:flex;gap:8px;align-items:center;border-radius:15px;padding:13px;background:#e9f6ed;color:#397e61;font-size:14px;font-weight:730;margin-top:13px}
+@media(max-width:380px){.poll-option-entry{grid-template-columns:22px minmax(0,1fr) minmax(0,.7fr) 25px;gap:5px;padding:9px 5px}.poll-option-entry .input{font-size:12px;padding:7px 4px}.poll-option-entry .field{font-size:12px}.poll-vote-option{gap:8px;padding:12px 9px}.poll-vote-count{font-size:12px}.poll-vote-copy strong{font-size:14px}.plan-type b{font-size:14px}}
