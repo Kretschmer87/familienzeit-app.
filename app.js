@@ -1,5 +1,5 @@
-/* Familienzeit 1.1.1 · Fix Profilfoto-Auswahl bei Hintergrund-Synchronisierung */
-import * as API from './backend.js?v=111';
+/* Familienzeit 1.2 · Gastgeber und persönliche Terminerinnerungen */
+import * as API from './backend.js?v=120';
 const $=q=>document.querySelector(q);
 const PEOPLE=['Martin','Stephanie','Fynn','Sonja','Mirco','Bela','Ella','Holger','Ivonne','Susanne'];
 const CATEGORIES=[
@@ -68,7 +68,7 @@ let inviteCode=/^[0-9a-f]{24}$/i.test(invitationFromUrl)?invitationFromUrl.toLow
 let unsubscribe=null,refreshTimeout=null,avatarCache=new Map(),peopleById=new Map(),accountsByUser=new Map();
 // File inputs cannot survive DOM replacement: retain the selected object independently.
 const selectedAvatarFiles=new Map();
-let data={people:[],person_managers:[],events:[],event_invites:[],rsvps:[],rsvp_attendees:[],comments:[],alternatives:[],notifications:[]};
+let data={people:[],person_managers:[],events:[],event_invites:[],rsvps:[],rsvp_attendees:[],comments:[],alternatives:[],notifications:[],event_reminder_preferences:[]};
 const profileByUser=()=>data.people.find(p=>p.auth_user_id===user?.id)||null;
 const me=()=>profileByUser();
 const person=id=>peopleById.get(id)||{id,display_name:'Person',birth_date:null,can_login:false};
@@ -87,8 +87,10 @@ function eventInvites(id){return data.event_invites.filter(i=>i.event_id===id).m
 function responseFor(id,personId){const p=person(personId),e=data.events.find(x=>x.id===id);if(!e||!p.auth_user_id)return null;return data.rsvps.find(r=>r.event_id===id&&r.revision===e.revision&&r.responder_user_id===p.auth_user_id)||null;}
 function guestsFor(event_id,responder_user_id,revision){return data.rsvp_attendees.filter(a=>a.event_id===event_id&&a.responder_user_id===responder_user_id&&a.revision===revision).map(a=>a.person_id);}
 function guestsTotal(e){const ids=new Set();for(const r of data.rsvps.filter(r=>r.event_id===e.id&&r.revision===e.revision&&r.status==='yes'))for(const p of guestsFor(e.id,r.responder_user_id,r.revision))ids.add(p);return ids.size;}
-function pendingEvents(){const own=me();if(!own)return [];return data.events.filter(e=>e.status==='active'&&e.event_date>=localDate()&&eventInvites(e.id).includes(own.id)&&!responseFor(e.id,own.id)).sort((a,b)=>(a.event_date+a.event_time).localeCompare(b.event_date+b.event_time));}
-function upcomingEvents(){return data.events.filter(e=>e.event_date>=localDate()&&e.status==='active').sort((a,b)=>(a.event_date+a.event_time).localeCompare(b.event_date+b.event_time));}
+function pendingEvents(){const own=me();if(!own)return [];return data.events.filter(e=>futureEvent(e)&&eventInvites(e.id).includes(own.id)&&!responseFor(e.id,own.id)).sort(compareEventStarts);}
+function compareEventStarts(a,b){return a.event_date.localeCompare(b.event_date)||String(a.event_time).localeCompare(String(b.event_time))||a.id.localeCompare(b.id);}
+function futureEvent(e){return e.status==='active'&&new Date(e.event_date+'T'+String(e.event_time).slice(0,5)+':00').getTime()>=Date.now();}
+function upcomingEvents(){return data.events.filter(futureEvent).sort(compareEventStarts);}
 function unread(){return data.notifications.filter(n=>!n.read_at);}
 async function fetchAvatars(){await Promise.all(data.people.filter(p=>p.avatar_path).map(async p=>{const c=avatarCache.get(p.id);if(c?.path===p.avatar_path&&c?.until>Date.now())return;try{const url=await API.avatarUrl(p.avatar_path);avatarCache.set(p.id,{url,path:p.avatar_path,until:Date.now()+45*60*1000});}catch(err){console.warn('Profilbild nicht verfügbar:',err);}}));}
 async function fetchData(){const oldIds=new Set(data.notifications.map(n=>n.id));const oldReady=mode==='ready';data=await API.readAll();peopleById=new Map(data.people.map(p=>[p.id,p]));accountsByUser=new Map(data.people.filter(p=>p.auth_user_id).map(p=>[p.auth_user_id,p]));if(!me()){mode='unlinked';render();return;}await fetchAvatars();mode='ready';render();if(oldReady)await notifyWhileOpen(data.notifications.filter(n=>!oldIds.has(n.id)));else await notifyWhileOpen(data.notifications.filter(n=>Date.now()-new Date(n.created_at).getTime()<120000));}
@@ -117,7 +119,8 @@ function render(){
   // Recreating the open profile sheet would discard the browser's selected File.
   const editingEvent=modal.type==='new'&&$('#new-event-form');
   const editingProfile=modal.type==='person'&&$('#profile-form')?.dataset.id===modal.id;
-  if(!editingEvent&&!editingProfile)renderModal();
+  const editingReminder=modal.type==='reminders'&&$('#reminder-form')?.dataset.id===modal.id;
+  if(!editingEvent&&!editingProfile&&!editingReminder)renderModal();
  }else if(mode!=='ready')$('#modal-root').innerHTML='';
 }
 function greeting(){const h=new Date().getHours();return h<10?'Guten Morgen':h<18?'Hallo':'Guten Abend';}
@@ -162,7 +165,7 @@ function eventCard(e){
   <span class="family-event-watermark" aria-hidden="true">${icon(typeIcon(e.kind),110)}</span>
   <span class="family-event-main">
    <span class="family-date-tile"><span class="family-date-month">${monthShort(e.event_date)}</span><strong>${+e.event_date.slice(8,10)}</strong><span class="family-date-weekday">${weekday(e.event_date)}</span><span class="family-date-symbol" aria-hidden="true">${icon(typeIcon(e.kind),21)}</span></span>
-   <span class="family-event-info"><span class="family-event-category">${safe(typeName(e.kind))}</span><strong class="family-event-title">${safe(e.title)}</strong><span class="family-event-time">${icon('clock',19)} ${safe(String(e.event_time).slice(0,5))} Uhr</span><span class="family-event-host">${host?avatar(host,'xs'):icon('users',19)} ${safe(hostName)} lädt ein</span></span>
+   <span class="family-event-info"><span class="family-event-category">${safe(typeName(e.kind))}</span><strong class="family-event-title">${safe(e.title)}</strong><span class="family-event-time">${icon('clock',19)} ${safe(String(e.event_time).slice(0,5))} Uhr</span><span class="family-event-host">${host?avatar(host,'xs'):icon('users',19)} <span class="host-identity"><b>${e.creator_user_id===user.id?'Du organisierst':'Organisiert von'}</b><strong>${safe(hostName)}</strong></span></span></span>
    <span class="family-event-chevron" aria-hidden="true">${icon('chevron',22)}</span>
   </span>
   ${e.teaser?`<span class="family-event-teaser">${safe(e.teaser)}</span>`:''}
@@ -196,6 +199,7 @@ function showModal(type,id=null){if(modal?.type==='new')storeEventDraft();modal=
 function closeModal(){if(modal?.type==='new')storeEventDraft();modal=null;$('#modal-root').innerHTML='';document.body.classList.remove('modal-open');}
 function renderModal(){if(!modal)return;if(modal.type==='new')storeEventDraft();let title='',body='',eyebrow='FAMILIENZEIT';const {type,id}=modal;
  if(type==='event'){const e=data.events.find(e=>e.id===id);if(!e){closeModal();return;}title='Einladung';eyebrow='TERMINDETAILS';body=eventDetail(e);}
+ else if(type==='reminders'){const e=data.events.find(e=>e.id===id);if(!e){closeModal();return;}title='Meine Erinnerungen';eyebrow='NUR FÜR DICH';body=personalReminderForm(e);}
  else if(type==='new'){title=birthdayDraft?'Geburtstag planen':'Neuen Termin planen';eyebrow='WIR SEHEN UNS';body=newEventForm();}
  else if(type==='edit'){title='Termin bearbeiten';body=editEventForm(data.events.find(e=>e.id===id));}
  else if(type==='move'){title='Termin verschieben';body=moveEventForm(data.events.find(e=>e.id===id));}
@@ -231,6 +235,29 @@ function newEventForm(){
  <label class="field">Bitte antworten bis<input class="input" type="date" name="deadline" value="${deadlineDefault}" required></label>
  <button class="btn primary wide" type="submit">${icon('check',19)} Einladung erstellen</button></form>`;
 }
+
+function reminderPreference(eventId){return data.event_reminder_preferences.find(p=>p.event_id===eventId&&p.user_id===user?.id)||null;}
+function reminderSummary(eventId){
+ const pref=reminderPreference(eventId);if(!pref)return 'Keine persönliche Erinnerung';
+ const days=[...(pref.days_before||[])].sort((a,b)=>b-a),pieces=days.map(d=>d===0?'am Termintag':d===1?'1 Tag vorher':d+' Tage vorher');
+ if(pref.exact_at)pieces.push('eigener Zeitpunkt');
+ return pieces.length?pieces.join(' · '):'Keine persönliche Erinnerung';
+}
+function remindLocalInput(date){if(!date)return '';const d=new Date(date),pad=n=>String(n).padStart(2,'0');if(Number.isNaN(d.getTime()))return '';return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;}
+function personalReminderForm(e){
+ const pref=reminderPreference(e.id),selected=pref?.days_before||[],time=String(pref?.remind_time||'09:00').slice(0,5);
+ const periods=[[14,'14 Tage vorher'],[7,'7 Tage vorher'],[3,'3 Tage vorher'],[1,'1 Tag vorher'],[0,'Am Termintag']];
+ return `<div class="reminder-intro"><div class="reminder-intro-icon">${icon('bell',24)}</div><div><strong>${safe(e.title)}</strong><span>${safe(fmt(e.event_date))} · ${safe(String(e.event_time).slice(0,5))} Uhr</span></div></div>
+ <form id="reminder-form" data-id="${safe(e.id)}" class="stack reminder-form">
+ <fieldset class="field-group"><legend>Wann möchtest du erinnert werden?</legend><p class="form-help">Wähle einen oder mehrere Zeitabstände.</p>
+ <div class="reminder-choices">${periods.map(([d,label])=>`<label class="reminder-choice"><input name="days_before" value="${d}" type="checkbox" ${selected.includes(d)?'checked':''}><span>${icon('calendar',19)} ${label}</span></label>`).join('')}</div></fieldset>
+ <label class="field">Uhrzeit für die ausgewählten Erinnerungen<input class="input" type="time" name="remind_time" value="${time}" required></label>
+ <label class="field">Oder zusätzlich ein genauer Zeitpunkt <small>(optional)</small><input class="input" type="datetime-local" name="exact_at" value="${safe(remindLocalInput(pref?.exact_at))}"></label>
+ <p class="form-help reminder-privacy">${icon('shield',17)} Vergangene Erinnerungszeitpunkte werden nicht nachträglich ausgelöst. Nur du erhältst diese Erinnerungen. Sie erscheinen automatisch unter der Glocke. Geräte-Hinweise werden zugestellt, wenn Familienzeit geöffnet ist; Push bei geschlossener App folgt noch.</p>
+ <button class="btn primary wide" type="submit">${icon('check',19)} Erinnerung speichern</button>
+ ${pref?`<button class="btn secondary wide" type="button" data-action="clear-reminders" data-id="${safe(e.id)}">${icon('x',18)} Alle Erinnerungen ausschalten</button>`:''}
+ <button class="btn secondary wide" type="button" data-action="event" data-id="${safe(e.id)}">Zurück zum Termin</button></form>`;
+}
 function eventDetail(e){
  const host=accountsByUser.get(e.creator_user_id),own=me(),invited=eventInvites(e.id).includes(own.id),ownResponse=responseFor(e.id,own.id),hostSelf=e.creator_user_id===user.id;
  const yes=data.rsvps.filter(r=>r.event_id===e.id&&r.revision===e.revision&&r.status==='yes'),confirmed=new Set(yes.flatMap(r=>guestsFor(e.id,r.responder_user_id,r.revision)));
@@ -242,10 +269,11 @@ function eventDetail(e){
  ${e.status==='cancelled'?`<div class="cancelled-warning">${icon('x',23)} Dieser Termin wurde abgesagt.</div>`:''}
  ${e.teaser?`<p class="detail-teaser">${safe(e.teaser)}</p>`:''}<div class="detail-facts">
  <div>${icon('clock',21)} <span><b>${safe(String(e.event_time).slice(0,5))} Uhr</b> · ${safe(fmt(e.event_date))}</span></div>
- <div>${icon('users',21)} <span>Eingeladen von <b>${safe(host?.display_name||'Familie')}</b></span></div>
+ <div class="detail-host-leader">${icon('users',21)} <span><b>Erstellt von ${safe(host?.display_name||'Familie')}</b><small>Organisator dieses Termins</small></span></div>
  ${e.location_text?`<div>${icon('map',21)} <span><b>${safe(e.location_text)}</b><p><a href="https://www.google.com/maps/search/?api=1&amp;query=${encodeURIComponent(e.location_text)}" target="_blank" rel="noopener noreferrer">Auf Google Maps ansehen</a></p></span></div>`:''}
  ${e.description?`<div>${icon('info',21)} <span>${safe(e.description)}</span></div>`:''}
  <div>${icon('calendar',21)} <span>Antwortfrist: <b>${safe(fmt(e.response_deadline||e.event_date))}</b></span></div></div>
+ ${e.status==='active'?`<button type="button" class="personal-reminder-entry" data-action="reminders" data-id="${safe(e.id)}"><span class="reminder-symbol">${icon('bell',23)}</span><span><strong>Meine Terminerinnerungen</strong><small>${safe(reminderSummary(e.id))}</small></span>${icon('chevron',22)}</button>`:''}
  ${e.status==='active'&&invited?`<section class="detail-panel"><h3>Deine Rückmeldung</h3><p class="form-help">${ownResponse?`Du hast „${responseLabel(ownResponse)}“ ausgewählt. Du kannst deine Antwort ändern.`:'Du hast noch nicht geantwortet. Was passt für dich?'}</p><div class="rsvp-actions"><button class="rsvp-btn yes ${ownResponse?.status==='yes'?'selected':''}" data-action="respond" data-id="${e.id}" data-response="yes">${icon('check',25)} Zusagen</button><button class="rsvp-btn maybe ${ownResponse?.status==='maybe'?'selected':''}" data-action="respond" data-id="${e.id}" data-response="maybe">${icon('info',25)} Vielleicht</button><button class="rsvp-btn no ${ownResponse?.status==='no'?'selected':''}" data-action="respond" data-id="${e.id}" data-response="no">${icon('x',25)} Absagen</button></div>
  ${ownResponse?.status==='yes'?`<h4>Wer kommt mit?</h4><p class="form-help">Du bist automatisch dabei. Jede Person wird insgesamt nur einmal gezählt.</p><div class="companion-list">${data.people.filter(p=>p.id!==own.id).map(p=>`<label class="companion-person">${avatar(p,'sm')}<span>${safe(p.display_name)}</span><input type="checkbox" data-action="companion" data-event="${e.id}" data-person="${p.id}" ${yourGuests.includes(p.id)?'checked':''}></label>`).join('')}</div>`:''}</section>`:''}
  <section class="detail-panel"><h3>${icon('users',21)} Dabei · ${confirmed.size} ${confirmed.size===1?'Person':'Personen'}</h3>${confirmed.size?`<div class="attendee-avatars">${[...confirmed].map(id=>`<span>${avatar(id,'sm')}${safe(person(id).display_name)}</span>`).join('')}</div>`:'<p class="form-help">Noch keine Zusagen.</p>'}
@@ -275,8 +303,8 @@ function personDetail(p){
  ${p.birth_date?`<button class="btn primary wide" data-action="birthday-event" data-id="${p.id}">${icon('plus',20)} Einladung zum Geburtstag erstellen</button>`:''}
  ${canEdit?`<section class="detail-panel"><h3>${icon('edit',20)} Profil bearbeiten</h3><form id="profile-form" data-id="${p.id}" class="stack"><label class="field">Geburtstag<input class="input" type="date" name="birthdate" max="${localDate()}" value="${p.birth_date||''}"></label><p class="form-help">Du kannst einen Geburtstag jederzeit nachtragen oder ändern.</p><label class="field">Profilbild <small>(optional)</small><input class="input file-input" type="file" name="avatar" accept="image/jpeg,image/png,image/webp,image/heic,image/heif"></label><p class="form-help" id="avatar-file-status" aria-live="polite">${selectedAvatarFiles.get(p.id)?'Ausgewählt: '+safe(selectedAvatarFiles.get(p.id).name):'Noch kein Foto ausgewählt.'}</p><p class="form-help">Das Bild wird quadratisch zugeschnitten und privat gespeichert. Maximal 8 MB Originalgröße.</p><button class="btn primary wide" type="submit">${icon('check',19)} Profil speichern</button></form></section>`:''}`;
 }
-function accountView(){const own=me(),supported=('Notification' in window);return `<div class="account-profile">${avatar(own,'xl')}<div><h3>${safe(own.display_name)}</h3><p>${safe(user?.email||'Persönlich angemeldet')}</p></div></div><div class="account-section"><button class="account-link" data-action="person" data-id="${own.id}">${icon('camera',23)} <span>Mein Profil & Bild</span>${icon('chevron',20)}</button><button class="account-link" data-action="install-guide">${icon('plus',23)} <span>App auf diesem Gerät installieren <small>Android & iPhone – direkt auf den Startbildschirm</small></span>${icon('chevron',20)}</button><button class="account-link" data-action="enable-notifications">${icon('bell',23)} <span>Geräte-Benachrichtigungen <small>${supported?Notification.permission==='granted'?'Für die geöffnete App aktiviert':'Aktivieren':'In diesem Browser nicht verfügbar'}</small></span>${icon('chevron',20)}</button></div><p class="form-help notice"><b>Wichtig:</b> Terminerinnerungen werden bereits serverseitig in der App gespeichert. Geräte-Benachrichtigungen funktionieren derzeit, wenn die App geöffnet ist. Push bei geschlossener App folgt noch.</p><p class="group-proof">${icon('users',17)} Gemeinsamer Familienkalender · ${data.people.length} Personen</p><p class="app-version">Familienzeit Version 1.1.1</p><button class="btn secondary wide" data-action="logout">${icon('logout',19)} Abmelden</button>`;}
-function notificationsView(){return `${data.notifications.length?data.notifications.map(n=>`<button class="notification-row ${!n.read_at?'unread':''}" data-action="notification-open" data-id="${n.id}"><span class="notification-symbol">${icon(n.related_person_id?'gift':n.kind==='nudge'?'bell':'calendar',24)}</span><span><strong>${safe(n.related_person_id?'Geburtstag':n.kind==='invited'?'Neue Einladung':n.kind==='rescheduled'?'Termin verschoben':n.kind==='cancelled'?'Termin abgesagt':n.kind==='deadline_reminder'?'Antwortfrist läuft ab':n.kind==='nudge'?'Erinnerung':'Familien-Nachricht')}</strong><p>${safe(n.message)}</p><small>${new Date(n.created_at).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'})}</small></span>${icon('chevron',18)}</button>`).join(''):'<div class="empty-state compact">Hier erscheinen eure Einladungen, Erinnerungen und Änderungen.</div>'}<p class="form-help notice">Die App prüft jeden Morgen, welche Geburtstage und Antwortfristen anstehen.</p>`;}
+function accountView(){const own=me(),supported=('Notification' in window);return `<div class="account-profile">${avatar(own,'xl')}<div><h3>${safe(own.display_name)}</h3><p>${safe(user?.email||'Persönlich angemeldet')}</p></div></div><div class="account-section"><button class="account-link" data-action="person" data-id="${own.id}">${icon('camera',23)} <span>Mein Profil & Bild</span>${icon('chevron',20)}</button><button class="account-link" data-action="install-guide">${icon('plus',23)} <span>App auf diesem Gerät installieren <small>Android & iPhone – direkt auf den Startbildschirm</small></span>${icon('chevron',20)}</button><button class="account-link" data-action="enable-notifications">${icon('bell',23)} <span>Geräte-Benachrichtigungen <small>${supported?Notification.permission==='granted'?'Für die geöffnete App aktiviert':'Aktivieren':'In diesem Browser nicht verfügbar'}</small></span>${icon('chevron',20)}</button></div><p class="form-help notice"><b>Wichtig:</b> Terminerinnerungen werden bereits serverseitig in der App gespeichert. Geräte-Benachrichtigungen funktionieren derzeit, wenn die App geöffnet ist. Push bei geschlossener App folgt noch.</p><p class="group-proof">${icon('users',17)} Gemeinsamer Familienkalender · ${data.people.length} Personen</p><p class="app-version">Familienzeit Version 1.2</p><button class="btn secondary wide" data-action="logout">${icon('logout',19)} Abmelden</button>`;}
+function notificationsView(){return `${data.notifications.length?data.notifications.map(n=>`<button class="notification-row ${!n.read_at?'unread':''}" data-action="notification-open" data-id="${n.id}"><span class="notification-symbol">${icon(n.related_person_id?'gift':n.kind==='nudge'?'bell':'calendar',24)}</span><span><strong>${safe(n.related_person_id?'Geburtstag':n.kind==='invited'?'Neue Einladung':n.kind==='rescheduled'?'Termin verschoben':n.kind==='cancelled'?'Termin abgesagt':n.kind==='deadline_reminder'?'Antwortfrist läuft ab':n.kind==='nudge'?'Erinnerung':n.kind.startsWith('personal_event_')?'Deine Terminerinnerung':'Familien-Nachricht')}</strong><p>${safe(n.message)}</p><small>${new Date(n.created_at).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'})}</small></span>${icon('chevron',18)}</button>`).join(''):'<div class="empty-state compact">Hier erscheinen eure Einladungen, Erinnerungen und Änderungen.</div>'}<p class="form-help notice">Die App prüft jeden Morgen, welche Geburtstage und Antwortfristen anstehen.</p>`;}
 function pendingView(){const list=pendingEvents();return `<p class="form-help">${list.length?'Diese Einladungen warten noch auf deine Antwort. Wähle einen Termin, um direkt zuzusagen oder abzusagen.':'Du hast aktuell alle Einladungen beantwortet.'}</p><div class="event-list">${list.map(eventCard).join('')}</div>`;}
 
 function currentForm(){return $('#modal-root form');}
@@ -397,6 +425,8 @@ document.addEventListener('click',async ev=>{
  if(a==='home-filter'){homeFilter=homeFilter==='all'?'mine':homeFilter==='mine'?'pending':'all';render();return;}
  if(a==='pending'){const list=pendingEvents();if(list.length===1){showModal('event',list[0].id);}else if(list.length>1){showModal('pending');}else{toast('Alle Einladungen sind beantwortet.');}return;}
  if(a==='event'){showModal('event',id);return;}
+ if(a==='reminders'){showModal('reminders',id);return;}
+ if(a==='clear-reminders'){await work(()=>API.deleteReminders(id),'Erinnerungen ausgeschaltet.',async()=>showModal('event',id));return;}
  if(a==='person'){showModal('person',id);return;}
  if(a==='birthday-event'){birthdayDraft={personId:id,date:nextBirthday(person(id))?.date};showModal('new');return;}
  if(a==='invite-code'){if(!me()?.can_invite||!person(id).can_login)return;if(!confirm('Einen persönlichen Einladungslink für '+person(id).display_name+' erzeugen? Ein früherer Link für diese Person würde ungültig.'))return;await work(()=>API.createInviteCode(id),null,async code=>{showModal('invite',id);modal.code=code;renderModal();});return;}
@@ -425,7 +455,20 @@ document.addEventListener('submit',async ev=>{
  if(id==='claim-form'){const code=String(new FormData(form).get('code')||'').trim();if(!code)return;await work(()=>API.claimInviteCode(code),'Dein Familienprofil ist aktiviert.',async()=>{closeModal();render();});return;}
  if(id==='login-form'){const d=new FormData(form);await work(async()=>{await API.login(String(d.get('email')).trim(),String(d.get('password')));user=await API.getUser();if(!user)throw Error('Anmeldung fehlgeschlagen');await fetchData();if(mode==='ready'){unsubscribe?.();unsubscribe=API.subscribe(scheduleRefresh);await openDeeplink();}},'Angemeldet.');return;}
  if(mode!=='ready')return;
- if(id==='new-event-form')await saveNewEvent(form);
+ if(id==='reminder-form'){
+  const eventId=form.dataset.id,e=data.events.find(x=>x.id===eventId);if(!e)return;
+  const values=new FormData(form);
+  const days=[...form.querySelectorAll('input[name="days_before"]:checked')].map(x=>Number(x.value));
+  const remindTime=String(values.get('remind_time')||'09:00');
+  const exact=String(values.get('exact_at')||'');
+  const when=exact?new Date(exact):null;
+  const eventTime=new Date(e.event_date+'T'+String(e.event_time).slice(0,5)+':00');
+  if(exact&&(!when||Number.isNaN(when.getTime())||when<=new Date()||when>=eventTime)){toast('Der eigene Erinnerungszeitpunkt muss in der Zukunft und vor dem Termin liegen.');return;}
+  if(days.includes(0)&&remindTime>=String(e.event_time).slice(0,5)){toast('Die Erinnerung am Termintag muss vor Beginn des Termins liegen.');return;}
+  if(!days.length&&!exact){await work(()=>API.deleteReminders(eventId),'Erinnerungen ausgeschaltet.',async()=>showModal('event',eventId));return;}
+  await work(()=>API.saveReminders(eventId,user.id,{days_before:days,remind_time:remindTime,exact_at:when?.toISOString()||null,updated_at:new Date().toISOString()}),'Deine Erinnerungen wurden gespeichert.',async()=>showModal('event',eventId));
+ }
+ else if(id==='new-event-form')await saveNewEvent(form);
  else if(id==='edit-event-form')await saveExistingEvent(form);
  else if(id==='move-event-form')await moveEvent(form);
  else if(id==='alternative-form')await saveAlternative(form);
@@ -455,7 +498,7 @@ document.addEventListener('change',async ev=>{if(ev.target.closest('#new-event-f
 });
 // Ein Update wird auch in einem bereits geoeffneten PWA-Fenster sichtbar angeboten.
 // Anders als beim automatischen Reload bleiben ungespeicherte Eingaben unangetastet.
-const APP_VERSION=document.querySelector('meta[name="familienzeit-version"]')?.content||'1.1.1';
+const APP_VERSION=document.querySelector('meta[name="familienzeit-version"]')?.content||'1.2';
 let checkingVersion=false,availableVersion='';
 function updateNotice(version){
  availableVersion=version;
@@ -493,7 +536,7 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState===
 window.addEventListener('focus',()=>checkForAppUpdate());
 window.setInterval(checkForAppUpdate,60000);
 if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost')){
- navigator.serviceWorker.register('./sw.js?v=111',{updateViaCache:'none'}).then(reg=>reg.update()).catch(console.warn);
+ navigator.serviceWorker.register('./sw.js?v=120',{updateViaCache:'none'}).then(reg=>reg.update()).catch(console.warn);
 }
 navigator.serviceWorker?.addEventListener('message',e=>{if(e.data?.type==='APP_UPDATED'&&e.data.version!==APP_VERSION)updateNotice(e.data.version);});
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installEvent=e;});

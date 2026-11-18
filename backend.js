@@ -1,4 +1,4 @@
-/* Familienzeit 0.8 · Supabase-Browserzugang · nur öffentlicher Publishable Key */
+/* Familienzeit 1.2 · Supabase-Browserzugang · nur öffentlicher Publishable Key */
 const PROJECT_URL='https://lzkousocxlswizkycrai.supabase.co';
 const PUBLIC_KEY='sb_publishable_W3sSqSCfTTc152DrXPPXSQ_QoSoLpGS';
 let client=null;
@@ -14,7 +14,7 @@ export async function getUser(){const result=await db().auth.getUser();if(result
 export async function login(email,password){ok(await db().auth.signInWithPassword({email,password}));}
 export async function logout(){ok(await db().auth.signOut());}
 export async function readAll(){
-  const names=['people','person_managers','events','event_invites','rsvps','rsvp_attendees','comments','alternatives','notifications'];
+  const names=['people','person_managers','events','event_invites','rsvps','rsvp_attendees','comments','alternatives','notifications','event_reminder_preferences'];
   const pairs=await Promise.all(names.map(async name=>{
     let q=db().from(name).select('*');
     if(name==='notifications')q=q.order('created_at',{ascending:false}).limit(200);
@@ -63,3 +63,10 @@ async function onboarding(payload){
 }
 export async function previewInvite(code){return onboarding({action:'preview',code});}
 export async function registerWithInvite(code,email,password){return onboarding({action:'register',code,email,password});}
+
+export async function saveReminders(event_id,user_id,settings){
+ return ok(await db().from('event_reminder_preferences').upsert({event_id,user_id,...settings},{onConflict:'event_id,user_id'}).select('event_id').single());
+}
+export async function deleteReminders(event_id){
+ return ok(await db().from('event_reminder_preferences').delete().eq('event_id',event_id));
+}

@@ -584,3 +584,29 @@ body{background:radial-gradient(ellipse 400px 340px at 107% 50px,rgba(248,233,21
 .install-steps .install-complete{background:#eaf8ee;color:#2d7f5b;border-radius:15px;padding:17px;display:flex;gap:10px;align-items:center}
 .group-proof{font-size:13px;color:#547d97;background:#edf5fb;padding:12px;border-radius:14px;display:flex;align-items:center;gap:9px}
 .invitation-code{font-size:12px!important;overflow-wrap:anywhere;user-select:all}
+
+/* Familienzeit 1.2: Gastgeber und persönliche Erinnerungen – bestehendes Design erhalten. */
+.family-event-host{color:#3c607f!important;font-weight:720!important;background:linear-gradient(145deg,#edf5fc,#e4eff8);border:1px solid #cfdfed;border-radius:13px;padding:6px 9px;margin-top:11px;box-shadow:0 3px 9px rgba(57,103,138,.08);max-width:100%;}
+.family-event-host .host-identity{display:flex;flex-direction:column;gap:1px;min-width:0;line-height:1.16}
+.family-event-host .host-identity b{font-size:11px;color:#647f94;font-weight:700}
+.family-event-host .host-identity strong{font-size:14px;font-weight:830;color:#274e6d;overflow-wrap:anywhere}
+.detail-host-leader{border-radius:15px;background:linear-gradient(145deg,#e8f3fb,#f6f9fc);border:1px solid #d6e7f2;padding:12px 9px;margin:-6px 0;}
+.detail-host-leader span{display:flex;flex-direction:column;gap:3px}
+.detail-host-leader small{color:#6c8397;font-size:12px}
+.personal-reminder-entry{display:flex;gap:12px;align-items:center;text-align:left;width:100%;border-radius:19px;background:linear-gradient(138deg,#eef6fc,#fffdf9);border:1px solid #d4e7f4;padding:13px 12px;color:#2f5c7d;margin:16px 0;box-shadow:0 5px 14px rgba(75,117,150,.075);min-height:72px}
+.personal-reminder-entry .reminder-symbol{flex:0 0 43px;width:43px;height:43px;display:grid;place-items:center;border-radius:14px;background:#dfedf9;color:#4f88b6}
+.personal-reminder-entry>span:nth-child(2){flex:1;display:flex;flex-direction:column;gap:5px;min-width:0}
+.personal-reminder-entry strong{font-size:16px;line-height:1.25}
+.personal-reminder-entry small{font-size:13px;line-height:1.35;color:#6b8092}
+.personal-reminder-entry>svg{flex:none;color:#7797b3}
+.reminder-intro{display:flex;gap:13px;align-items:center;background:linear-gradient(130deg,#e8f3fc,#fcfaf5);border:1px solid #e0eaf2;border-radius:19px;padding:14px;margin-bottom:21px}
+.reminder-intro-icon{width:47px;height:47px;border-radius:15px;background:#dbeaf7;color:#477ea8;display:grid;place-items:center;flex:none}
+.reminder-intro>div:nth-child(2){display:flex;flex-direction:column;gap:6px;min-width:0}.reminder-intro strong{font-size:17px;color:#2b4e6b}.reminder-intro span{font-size:14px;color:#627e95}
+.reminder-choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:12px}
+.reminder-choice{display:flex;gap:10px;align-items:center;padding:14px 11px;min-height:58px;background:#fafcfe;border:1px solid #dee8f0;border-radius:16px;color:#36536a;font-weight:670;font-size:14px;cursor:pointer}
+.reminder-choice input{width:20px;height:20px;flex:0 0 20px;accent-color:#4f8cbd}
+.reminder-choice:has(input:checked){background:#eaf5fd;border-color:#8db8da;box-shadow:0 4px 11px rgba(80,131,179,.09)}
+.reminder-choice>span{display:flex;align-items:center;gap:7px;min-width:0}
+.reminder-choice svg{color:#6d98b9;flex:0 0 19px}
+.reminder-form{gap:16px}.reminder-privacy{display:flex;align-items:flex-start;gap:7px;line-height:1.45;background:#f4f8fb;padding:12px;border-radius:14px}.reminder-privacy svg{flex:0 0 17px;color:#6b91ae}
+@media(max-width:360px){.reminder-choices{grid-template-columns:1fr}.family-event-host .host-identity strong{font-size:13px}}
