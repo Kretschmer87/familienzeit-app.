@@ -1,5 +1,5 @@
-/* Familienzeit 1.5 · Überarbeitetes Design & persönliche Terminansicht */
-import * as API from './backend.js?v=150';
+/* Familienzeit 1.6 · Ort, Geburtstage, Mitteilungen und visuelle Verfeinerung */
+import * as API from './backend.js?v=160';
 const $=q=>document.querySelector(q);
 const PEOPLE=['Martin','Stephanie','Fynn','Sonja','Mirco','Bela','Ella','Holger','Ivonne','Susanne'];
 const CATEGORIES=[
@@ -123,7 +123,7 @@ async function openDeeplink(){const params=new URLSearchParams(location.search),
 
 function layout(){
  const own=me(),newCount=unread().length;
- return `<div class="app-shell"><header class="topbar"><div class="brand"><div class="brand-symbol">${icon('heart',25)}</div><div><strong>Familienzeit</strong></div></div><div class="header-tools"><button class="icon-btn ${newCount?'has-unread':''}" data-action="notifications" aria-label="Mitteilungen anzeigen">${icon('bell',25)}${newCount?`<i>${newCount>9?'9+':newCount}</i>`:''}</button><button class="avatar-trigger" data-action="account" aria-label="Mein Konto">${avatar(own)}</button></div></header><main>${page==='home'?homeView():page==='calendar'?calendarView():familyView()}</main></div><nav class="bottom-nav" aria-label="Hauptnavigation"><button class="nav-item ${page==='home'?'active':''}" data-action="page" data-page="home">${icon('home',26)}<span>Start</span></button><button class="nav-item ${page==='calendar'?'active':''}" data-action="page" data-page="calendar">${icon('calendar',26)}<span>Kalender</span></button><button class="nav-item create" data-action="new-event">${icon('plus',27)}<span>Termin</span></button><button class="nav-item ${page==='family'?'active':''}" data-action="page" data-page="family">${icon('users',26)}<span>Familie</span></button></nav>`;
+ return `<div class="app-shell"><header class="topbar"><div class="brand"><div class="brand-symbol">${icon('heart',25)}</div><div><strong>Familienzeit</strong></div></div><div class="header-tools"><button class="icon-btn ${newCount?'has-unread':''}" data-action="notifications" aria-label="Mitteilungen anzeigen${newCount?`, ${newCount} ungelesen`:''}">${icon('bell',25)}${newCount?`<i>${newCount>9?'9+':newCount}</i>`:''}</button><button class="avatar-trigger" data-action="account" aria-label="Mein Konto">${avatar(own)}</button></div></header><main>${page==='home'?homeView():page==='calendar'?calendarView():familyView()}</main></div><nav class="bottom-nav" aria-label="Hauptnavigation"><button class="nav-item ${page==='home'?'active':''}" data-action="page" data-page="home">${icon('home',26)}<span>Start</span></button><button class="nav-item ${page==='calendar'?'active':''}" data-action="page" data-page="calendar">${icon('calendar',26)}<span>Kalender</span></button><button class="nav-item create" data-action="new-event">${icon('plus',27)}<span>Termin</span></button><button class="nav-item ${page==='family'?'active':''}" data-action="page" data-page="family">${icon('users',26)}<span>Familie</span></button></nav>`;
 }
 function authView(){
  const busy=mode==='loading';const unlinked=mode==='unlinked';
@@ -168,7 +168,7 @@ function homeListRow(e,featured=false){
  const days=poll?null:Math.max(0,daysBetween(localDate(),e.event_date));
  const countdown=poll?'':days===0?'Heute':days===1?'Morgen':'in '+days+' Tagen';
  const address=String(e.location_text||'').trim();
- const mapUrl=address&&!poll?'https://www.google.com/maps/dir/?api=1&destination='+encodeURIComponent(address)+'&travelmode=driving&dir_action=navigate':'';
+ const mapUrl=!poll?routeUrl(e):'';
  return `<article class="fz-list-row ${featured?'fz-list-next':''} ${themeClass(e)} card-color-${safe(e.card_color||'blue')}">
  <button type="button" class="fz-list-open" data-action="event" data-id="${safe(e.id)}" aria-label="${safe(e.title)} öffnen">
  <span class="fz-list-date"><small>${poll?'FRIST':safe(month)}</small><strong>${day}</strong></span>
@@ -179,6 +179,40 @@ function homeListRow(e,featured=false){
  </article>`;
 }
 
+function isHomePlace(value){
+ const text=String(value||'').trim().toLocaleLowerCase('de-DE');
+ return /^(bei uns(?: zu hause)?|zu hause|zuhause|bei uns daheim|daheim)(?:[.!])?$/.test(text);
+}
+function routeUrl(e){
+ const address=String(e?.location_text||'').trim();
+ // Home is a family shorthand, never geocode or navigate to its literal wording.
+ if(!address||isHomePlace(address))return '';
+ return 'https://www.google.com/maps/dir/?api=1&destination='+encodeURIComponent(address)+'&travelmode=driving&dir_action=navigate';
+}
+function meetingPlacePicker(value='',newEvent=false){
+ const current=String(value||'').trim();
+ const choice=isHomePlace(current)?'home':current?'address':'';
+ const isHome=choice==='home',isAddress=choice==='address',place=isHome?'':current;
+ return `<fieldset class="field-group meeting-place"><legend>Wo treffen wir uns? <span aria-label="Pflichtfeld">*</span></legend>
+ <div class="meeting-choice"><label><input type="radio" name="meet_kind" value="home" ${isHome?'checked':''}><span>${icon('home',23)} <strong>Bei uns zu Hause</strong></span></label>
+ <label><input type="radio" name="meet_kind" value="address" ${isAddress?'checked':''}><span>${icon('map',23)} <strong>Anderer Ort</strong></span></label></div>
+ <label class="field meeting-address" ${!isAddress?'hidden':''}>Adresse oder Treffpunkt<input class="input" name="location" maxlength="240" placeholder="z. B. Restaurantname, Straße, Ort" value="${safe(place)}" ${isAddress?'required':''} ${!isAddress?'disabled':''}></label>
+ <p class="form-help meeting-helper">${isHome?'Den Gastgebern ist der Treffpunkt bekannt.':isAddress?'Bitte den Ort möglichst genau angeben. Daraus wird die Google-Maps-Route erstellt.':'Bitte eine der beiden Möglichkeiten auswählen.'}</p></fieldset>`;
+}
+function syncMeetingPlace(form){
+ if(!form)return;
+ const choice=form.querySelector('input[name="meet_kind"]:checked')?.value||'';
+ const field=form.querySelector('.meeting-address'),input=form.querySelector('input[name="location"]'),hint=form.querySelector('.meeting-helper');
+ if(field)field.hidden=choice!=='address';
+ if(input){input.disabled=choice!=='address';input.required=choice==='address';}
+ if(hint)hint.textContent=choice==='home'?'Den Gastgebern ist der Treffpunkt bekannt.':choice==='address'?'Bitte den Ort möglichst genau angeben. Daraus wird die Google-Maps-Route erstellt.':'Bitte eine der beiden Möglichkeiten auswählen.';
+}
+function meetingPlaceValue(form){
+ const choice=form.querySelector('input[name="meet_kind"]:checked')?.value;
+ if(choice==='home')return 'Bei uns zu Hause';
+ if(choice!=='address')return '';
+ return String(form.querySelector('input[name="location"]')?.value||'').trim();
+}
 function homeView(){
  const up=upcomingEvents(),pending=pendingEvents(),births=upcomingBirthdays();
  const imminent=births.filter(p=>p.next.days<=7).length;
@@ -227,7 +261,7 @@ function eventCard(e,featured=false){
  const days=poll?null:Math.max(0,daysBetween(localDate(),e.event_date));
  const countdown=days===0?'Heute':days===1?'Morgen':`in ${days} Tagen`;
  const address=String(e.location_text||'').trim();
- const maps=address&&!poll?`<a class="demo-map-link" title="Route mit Google Maps anzeigen" aria-label="Route nach ${safe(address)} in Google Maps öffnen" target="_blank" rel="noopener noreferrer" href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}&travelmode=driving&dir_action=navigate"><svg viewBox="0 0 28 30" width="24" height="24" aria-hidden="true"><path fill="#4285f4" d="M14 1C7 1 2 6.6 2 13.7 2 21 14 29 14 29s12-8 12-15.3C26 6.6 21 1 14 1Z"/><path fill="#34a853" d="M14 29S2 21 2 13.7c0-4.1 2.1-7.9 5.4-10.2l6.6 10.8V29Z"/><path fill="#fbbc04" d="M2.3 11.1C3.4 5.4 8.2 1 14 1c3.6 0 6.7 1.5 8.9 4L14 15 2.3 11.1Z"/><path fill="#ea4335" d="M26 13.7C26 21 14 29 14 29V15l8.9-10C24.9 7.3 26 10.2 26 13.7Z"/><circle cx="14" cy="13.2" r="5.2" fill="white"/><circle cx="14" cy="13.2" r="2.7" fill="#4285f4"/></svg></a>`:'';
+ const maps=routeUrl(e)&&!poll?`<a class="demo-map-link" title="Route mit Google Maps anzeigen" aria-label="Route nach ${safe(address)} in Google Maps öffnen" target="_blank" rel="noopener noreferrer" href="${routeUrl(e)}"><svg viewBox="0 0 28 30" width="24" height="24" aria-hidden="true"><path fill="#4285f4" d="M14 1C7 1 2 6.6 2 13.7 2 21 14 29 14 29s12-8 12-15.3C26 6.6 21 1 14 1Z"/><path fill="#34a853" d="M14 29S2 21 2 13.7c0-4.1 2.1-7.9 5.4-10.2l6.6 10.8V29Z"/><path fill="#fbbc04" d="M2.3 11.1C3.4 5.4 8.2 1 14 1c3.6 0 6.7 1.5 8.9 4L14 15 2.3 11.1Z"/><path fill="#ea4335" d="M26 13.7C26 21 14 29 14 29V15l8.9-10C24.9 7.3 26 10.2 26 13.7Z"/><circle cx="14" cy="13.2" r="5.2" fill="white"/><circle cx="14" cy="13.2" r="2.7" fill="#4285f4"/></svg></a>`:'';
  return `<article class="event-card family-event-card demo-refined-card ${featured?'is-next-event':''} ${poll?'is-poll-card':''} ${themeClass(e)} card-color-${safe(e.card_color||'blue')}">
   <span class="family-event-watermark demo-stronger-motif" aria-hidden="true">${icon(poll?'calendar':typeIcon(e.kind),126)}</span>
   <button class="demo-open-card" type="button" data-action="event" data-id="${e.id}" aria-label="${safe(e.title)}, Details öffnen">
@@ -250,11 +284,12 @@ function calendarView(){
  const y=month.getFullYear(),m=month.getMonth()+1,first=(new Date(y,m-1,1).getDay()+6)%7,last=new Date(y,m,0).getDate();let cells='';
  for(let i=0;i<first;i++)cells+='<span class="date-gap"></span>';
  for(let d=1;d<=last;d++){
-   const date=iso(y,m,d),hasEvent=data.events.some(e=>(isPoll(e)?new Date(e.poll_deadline).toLocaleDateString('sv-SE')===date:e.event_date===date)&&e.status!=='cancelled'),birthday=data.people.some(p=>birthdayInYear(p,y)===date);
-   cells+=`<button class="calendar-day ${date===selectedDay?'selected':''} ${date===localDate()?'today':''}" data-action="calendar-day" data-date="${date}" aria-label="${safe(fmt(date))}${birthday?', Geburtstag':''}${hasEvent?', Termin':''}">${d}<span class="day-dots">${birthday?'<i class="birth-dot"></i>':''}${hasEvent?'<i class="event-dot"></i>':''}</span></button>`;
+   const date=iso(y,m,d),hasEvent=data.events.some(e=>(isPoll(e)?new Date(e.poll_deadline).toLocaleDateString('sv-SE')===date:e.event_date===date)&&e.status!=='cancelled'),birthdayPeople=data.people.filter(p=>birthdayInYear(p,y)===date),birthday=birthdayPeople.length>0;
+   const birthdayName=birthdayPeople.map(p=>p.display_name).join(', ');
+   cells+=`<button class="calendar-day ${birthday?'has-birthday':''} ${date===selectedDay?'selected':''} ${date===localDate()?'today':''}" data-action="calendar-day" data-date="${date}" title="${birthday?safe('Geburtstag: '+birthdayName):safe(fmt(date))}" aria-label="${safe(fmt(date))}${birthday?', Geburtstag von '+safe(birthdayName):''}${hasEvent?', Termin':''}"><span class="calendar-day-number">${d}</span><span class="day-dots">${birthday?`<span class="birthday-calendar-gift" aria-hidden="true">${icon('gift',15)}</span>`:''}${hasEvent?'<i class="event-dot"></i>':''}</span></button>`;
  }
  const date=selectedDay,dayEvents=data.events.filter(e=>isPoll(e)?new Date(e.poll_deadline).toLocaleDateString('sv-SE')===date:e.event_date===date).sort((a,b)=>String(a.event_time).localeCompare(String(b.event_time))),birthdays=data.people.filter(p=>birthdayInYear(p,+date.slice(0,4))===date);
- return `<div class="page-head"><p class="eyebrow">ALLES AUF EINEN BLICK</p><h1>Unser Kalender</h1><p>Alle Familientermine und Geburtstage zusammen.</p></div><section class="calendar-panel"><div class="month-heading"><h2>${safe(month.toLocaleDateString('de-DE',{month:'long',year:'numeric'}))}</h2><div class="month-controls"><button data-action="month-prev" aria-label="Vorheriger Monat">${icon('left',22)}</button><button data-action="month-next" aria-label="Nächster Monat">${icon('chevron',22)}</button></div></div><div class="weekday-grid">${['Mo','Di','Mi','Do','Fr','Sa','So'].map(x=>`<span>${x}</span>`).join('')}</div><div class="month-grid">${cells}</div><div class="calendar-legend"><span><i class="birth-dot"></i> Geburtstag</span><span><i class="event-dot"></i> Termin</span></div></section>
+ return `<div class="page-head"><p class="eyebrow">ALLES AUF EINEN BLICK</p><h1>Unser Kalender</h1><p>Alle Familientermine und Geburtstage zusammen.</p></div><section class="calendar-panel"><div class="month-heading"><h2>${safe(month.toLocaleDateString('de-DE',{month:'long',year:'numeric'}))}</h2><div class="month-controls"><button data-action="month-prev" aria-label="Vorheriger Monat">${icon('left',22)}</button><button data-action="month-next" aria-label="Nächster Monat">${icon('chevron',22)}</button></div></div><div class="weekday-grid">${['Mo','Di','Mi','Do','Fr','Sa','So'].map(x=>`<span>${x}</span>`).join('')}</div><div class="month-grid">${cells}</div><div class="calendar-legend"><span>${icon('gift',17)} Geburtstag</span><span><i class="event-dot"></i> Termin</span></div></section>
  <div class="section-title"><div><p class="eyebrow">${safe(fmt(date,{weekday:'long'}).toUpperCase())}</p><h2>${safe(fmt(date,{day:'numeric',month:'long'}))}</h2></div></div>
  <div class="day-list">${birthdays.map(p=>`<button class="birthday-day-card" data-action="person" data-id="${p.id}">${avatar(p,'md')}<span><strong>${safe(p.display_name)} hat Geburtstag!</strong><small>Tippen, um eine Feier zu planen</small></span>${icon('gift',25)}</button>`).join('')}${dayEvents.map(e=>eventCard(e)).join('')}${!dayEvents.length&&!birthdays.length?'<div class="empty-state compact">Noch nichts an diesem Tag geplant.</div>':''}</div>`;
 }
@@ -286,10 +321,10 @@ function renderModal(){if(!modal)return;if(modal.type==='new')storeEventDraft();
  else if(type==='invite'){const p=person(id);title='Einladung für '+p.display_name;eyebrow='EINFACHER ERSTZUGANG';const link=invitationLink(modal.code||'');body=`<p class="form-help">${safe(p.display_name)} öffnet den Link und richtet das eigene Passwort ein. Das Profil wird automatisch mit eurem gemeinsamen Kalender verbunden.</p><div class="invitation-code">${safe(link)}</div><button class="btn primary wide" data-action="share-invite">${icon('send',19)} Einladung teilen</button><button class="btn secondary wide" data-action="copy-invite">${icon('check',19)} Link kopieren</button><p class="form-help notice">Der Link gilt 14 Tage und lässt sich nur einmal verwenden. Bitte nur der vorgesehenen Person schicken.</p>`;}
  else if(type==='install'){title='Familienzeit installieren';eyebrow='AUF DEINEM HANDY';body=installGuide();}
  else if(type==='push-guide'){title='Benachrichtigungen';eyebrow='AUF DEINEM SMARTPHONE';body=pushGuide();}
- $('#modal-root').innerHTML=modalFrame(title,body,eyebrow);if(type==='new'){restoreEventDraft();toggleNewEventMode($('#new-event-form'));}
+ $('#modal-root').innerHTML=modalFrame(title,body,eyebrow);if(type==='new'){restoreEventDraft();toggleNewEventMode($('#new-event-form'));syncMeetingPlace($('#new-event-form'));}if(type==='edit')syncMeetingPlace($('#edit-event-form'));
 }
 function colorPicker(selected='blue'){
- return `<fieldset class="field-group color-field"><legend>Farbe auswählen</legend><p class="form-help">Deine Farbe wird später auch auf der Terminkarte angezeigt.</p><div class="color-options">${COLORS.map(v=>`<label class="color-option"><input type="radio" name="card_color" value="${v.id}" ${selected===v.id?'checked':''}><span class="color-option-face"><i class="color-dot swatch-${v.id}"></i><b>${safe(v.name)}</b></span></label>`).join('')}</div></fieldset>`;
+ return `<fieldset class="field-group color-field"><legend>Farbe auswählen</legend><p class="form-help">Deine Farbe wird später auch auf der Terminkarte angezeigt.</p><div class="color-options">${COLORS.map(v=>`<label class="color-option" title="${safe(v.name)}"><input type="radio" name="card_color" value="${v.id}" aria-label="${safe(v.name)}" ${selected===v.id?'checked':''}><span class="color-option-face"><i class="color-dot swatch-${v.id}"></i></span></label>`).join('')}</div></fieldset>`;
 }
 function categoryPicker(selected='gathering'){
  return `<fieldset class="field-group"><legend>Was habt ihr vor?</legend><div class="category-grid">${CATEGORIES.map(c=>`<label class="category-radio"><input type="radio" name="kind" value="${c.id}" ${selected===c.id?'checked':''} required><span>${icon(c.icon,27)}<b>${safe(c.name)}</b></span></label>`).join('')}</div></fieldset>`;
@@ -329,7 +364,7 @@ function newEventForm(){
  <label class="field">Abstimmung endet am<input class="input" type="datetime-local" name="poll_deadline" value="${pollEnd}" required></label>
  <p class="form-help">Nach Fristablauf gewinnt die meistgewählte Möglichkeit. Bei Gleichstand entscheidet das frühere Datum. Anschließend müssen alle verbindlich zu- oder absagen.</p></fieldset>
  <label class="field">Einladungssatz <small>(optional)</small><input class="input" name="teaser" maxlength="90" placeholder="Ein kleiner Vorgeschmack …" value="${draft?'Wir freuen uns auf einen schönen Tag zusammen!':''}"></label>
- <label class="field">Ort / Adresse<input class="input" name="location" maxlength="240" placeholder="z. B. bei uns zu Hause"></label>
+ ${meetingPlacePicker('',true)}
  <label class="field">Das solltest du wissen <small>(optional)</small><textarea class="input" name="description" maxlength="3000" rows="3" placeholder="Was sollen die anderen mitbringen?"></textarea></label>
  ${hostPicker()}
  <fieldset class="field-group"><legend>Wer ist eingeladen?</legend><p class="form-help">Die sieben App-Nutzer stimmen selbst ab. Kinder können beim endgültigen Termin mitkommen.</p>${inviteePicker(new Set(data.people.map(p=>p.id)))}</fieldset>
@@ -405,7 +440,7 @@ function eventDetail(e){
  const yourGuests=ownResponse?.status==='yes'?guestsFor(e.id,user.id,e.revision):[];
  const missing=eventInvites(e.id).map(id=>person(id)).filter(p=>p?.can_login&&p.auth_user_id&&!responseFor(e.id,p.id));
  const location=String(e.location_text||'').trim();
- const mapsHref=location?'https://www.google.com/maps/dir/?api=1&destination='+encodeURIComponent(location)+'&travelmode=driving&dir_action=navigate':'';
+ const mapsHref=routeUrl(e);
  const localCompanions=data.people.filter(p=>p.id!==own.id&&p.household_key===own.household_key);
  const dateLabel=fmt(e.event_date,{weekday:'long',day:'numeric',month:'long',year:'numeric'});
  return `<div class="fz-detail-demo">
@@ -420,7 +455,7 @@ function eventDetail(e){
   ${e.teaser?`<p class="fz-detail-teaser">${safe(e.teaser)}</p>`:''}
   <div class="fz-detail-topics">
     <section class="fz-detail-topic fz-detail-host"><span class="fz-detail-topic-icon">${icon('users',25)}</span><div><small>Gastgeber</small><strong>${safe(hostNames(e))}</strong></div>${host?avatar(host,'md'):''}</section>
-    ${location?`<section class="fz-detail-topic fz-detail-address"><span class="fz-detail-topic-icon">${icon('map',25)}</span><div><small>Ort & Anfahrt</small><strong>${safe(location)}</strong></div><a class="fz-detail-route" href="${mapsHref}" target="_blank" rel="noopener noreferrer" title="Route nach ${safe(location)} in Google Maps anzeigen" aria-label="Route nach ${safe(location)} öffnen">${icon('map',20)} <span>Route</span></a></section>`:''}
+    <section class="fz-detail-topic fz-detail-address"><span class="fz-detail-topic-icon">${icon('map',25)}</span><div><small>Wo treffen wir uns?</small><strong>${safe(location||'Treffpunkt noch nicht angegeben')}</strong></div>${mapsHref?`<a class="fz-detail-route" href="${mapsHref}" target="_blank" rel="noopener noreferrer" title="Route nach ${safe(location)} in Google Maps anzeigen" aria-label="Route nach ${safe(location)} öffnen">${icon('map',20)} <span>Route</span></a>`:''}</section>
   </div>
   ${e.description?`<section class="fz-detail-panel fz-detail-notes"><h3>Wichtige Hinweise</h3><p>${safe(e.description)}</p></section>`:''}
   ${e.status==='active'?`<button type="button" class="fz-detail-reminder" data-action="reminders" data-id="${safe(e.id)}"><span class="fz-detail-reminder-icon">${icon('bell',26)}</span><span><strong>Mich erinnern</strong><small>${safe(reminderSummary(e.id))}</small></span>${icon('chevron',23)}</button>`:''}
@@ -451,7 +486,7 @@ function editEventForm(e){if(!e)return '';
  return `<form id="edit-event-form" data-id="${e.id}" class="stack"><p class="form-help">${isPoll(e)?'Abstimmungstermine und Frist bleiben während einer laufenden Abstimmung unverändert.':'Den Zeitpunkt änderst du über „Verschieben“.'} Alle werden über wichtige Änderungen informiert.</p>${categoryPicker(e.kind)}${colorPicker(e.card_color||'blue')}
  <label class="field">Titel<input class="input" name="title" maxlength="120" required value="${safe(e.title)}"></label>
  <label class="field">Einladungssatz<input class="input" name="teaser" maxlength="90" value="${safe(e.teaser)}"></label>
- <label class="field">Ort / Adresse<input class="input" name="location" maxlength="240" value="${safe(e.location_text)}"></label>
+ ${meetingPlacePicker(e.location_text,false)}
  <label class="field">Beschreibung<textarea class="input" rows="3" name="description" maxlength="3000">${safe(e.description)}</textarea></label>
  ${hostPicker(new Set(cohostIds(e.id)))}
  <fieldset class="field-group"><legend>Wer ist eingeladen?</legend>${inviteePicker(new Set(eventInvites(e.id)))}</fieldset>
@@ -467,7 +502,7 @@ function personDetail(p){
  ${p.birth_date?`<button class="btn primary wide" data-action="birthday-event" data-id="${p.id}">${icon('plus',20)} Einladung zum Geburtstag erstellen</button>`:''}
  ${canEdit?`<section class="detail-panel"><h3>${icon('edit',20)} Profil bearbeiten</h3><form id="profile-form" data-id="${p.id}" class="stack"><label class="field">Geburtstag<input class="input" type="date" name="birthdate" max="${localDate()}" value="${p.birth_date||''}"></label><p class="form-help">Du kannst einen Geburtstag jederzeit nachtragen oder ändern.</p><label class="field">Profilbild <small>(optional)</small><input class="input file-input" type="file" name="avatar" accept="image/jpeg,image/png,image/webp,image/heic,image/heif"></label><p class="form-help" id="avatar-file-status" aria-live="polite">${selectedAvatarFiles.get(p.id)?'Ausgewählt: '+safe(selectedAvatarFiles.get(p.id).name):'Noch kein Foto ausgewählt.'}</p><p class="form-help">Das Bild wird quadratisch zugeschnitten und privat gespeichert. Maximal 8 MB Originalgröße.</p><button class="btn primary wide" type="submit">${icon('check',19)} Profil speichern</button></form></section>`:''}`;
 }
-function accountView(){const own=me(),supported=('Notification' in window);return `<div class="account-profile">${avatar(own,'xl')}<div><h3>${safe(own.display_name)}</h3><p>${safe(user?.email||'Persönlich angemeldet')}</p></div></div><div class="account-section"><button class="account-link" data-action="person" data-id="${own.id}">${icon('camera',23)} <span>Mein Profil & Bild</span>${icon('chevron',20)}</button><button class="account-link" data-action="install-guide">${icon('plus',23)} <span>App auf diesem Gerät installieren <small>Android & iPhone – direkt auf den Startbildschirm</small></span>${icon('chevron',20)}</button><button class="account-link" data-action="push-guide">${icon('bell',23)} <span>Push-Benachrichtigungen <small>${pushEnabled?'Auf diesem Gerät eingerichtet':supported?Notification.permission==='denied'?'In den Geräteeinstellungen freigeben':'Jetzt einrichten':'Browser unterstützt keine Benachrichtigungen'}</small></span>${icon('chevron',20)}</button></div><p class="form-help notice">In der Glocke siehst du Einladungen, Kommentare und Erinnerungen. Mit eingerichteten Push-Benachrichtigungen können Hinweise auch bei geschlossener App ankommen.</p><p class="group-proof">${icon('users',17)} Gemeinsamer Familienkalender · ${data.people.length} Personen</p><p class="app-version">Familienzeit Version 1.5</p><button class="btn secondary wide" data-action="logout">${icon('logout',19)} Abmelden</button>`;}
+function accountView(){const own=me(),supported=('Notification' in window);return `<div class="account-profile">${avatar(own,'xl')}<div><h3>${safe(own.display_name)}</h3><p>${safe(user?.email||'Persönlich angemeldet')}</p></div></div><div class="account-section"><button class="account-link" data-action="person" data-id="${own.id}">${icon('camera',23)} <span>Mein Profil & Bild</span>${icon('chevron',20)}</button><button class="account-link" data-action="install-guide">${icon('plus',23)} <span>App auf diesem Gerät installieren <small>Android & iPhone – direkt auf den Startbildschirm</small></span>${icon('chevron',20)}</button><button class="account-link" data-action="push-guide">${icon('bell',23)} <span>Push-Benachrichtigungen <small>${pushEnabled?'Auf diesem Gerät eingerichtet':supported?Notification.permission==='denied'?'In den Geräteeinstellungen freigeben':'Jetzt einrichten':'Browser unterstützt keine Benachrichtigungen'}</small></span>${icon('chevron',20)}</button></div><p class="form-help notice">In der Glocke siehst du Einladungen, Kommentare und Erinnerungen. Mit eingerichteten Push-Benachrichtigungen können Hinweise auch bei geschlossener App ankommen.</p><p class="group-proof">${icon('users',17)} Gemeinsamer Familienkalender · ${data.people.length} Personen</p><p class="app-version">Familienzeit Version 1.6</p><button class="btn secondary wide" data-action="logout">${icon('logout',19)} Abmelden</button>`;}
 function notificationActor(n){
  const e=data.events.find(e=>e.id===n.event_id);
  return accountsByUser.get(n.actor_user_id)||accountsByUser.get(n.kind==='invited'||n.kind==='rescheduled'||n.kind==='cancelled'?e?.creator_user_id:null)||null;
@@ -488,7 +523,8 @@ function notificationHeading(n){
  if(n.kind?.startsWith('personal_event_'))return 'Deine Terminerinnerung';
  return 'Neuigkeit aus der Familie';
 }
-function notificationsView(){const shown=visibleNotifications();return `${shown.length?shown.map(n=>`<button class="notification-row ${!n.read_at?'unread':''}" data-action="notification-open" data-id="${n.id}"><span class="notification-symbol">${icon(n.related_person_id?'gift':n.kind==='comment'?'message':n.kind==='nudge'?'bell':'calendar',24)}</span><span><strong>${safe(notificationHeading(n))}</strong><p>${safe(n.message)}</p><small>${new Date(n.created_at).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'})}</small></span>${icon('chevron',18)}</button>`).join(''):'<div class="empty-state compact">Hier erscheinen Einladungen, Kommentare und Erinnerungen.</div>'}<p class="form-help notice">Persönliche Erinnerungen enden automatisch nach dem Termin. Für Hinweise auf dem Sperrbildschirm kannst du die Geräte-Benachrichtigungen aktivieren.</p>`;}
+let showReadNotifications=false;
+function notificationsView(){const unreads=unread(),shown=showReadNotifications?visibleNotifications():unreads;return `<div class="notification-inbox-actions"><strong>${unreads.length?unreads.length+' ungelesen':'Alles gelesen'}</strong><button type="button" data-action="notifications-history">${showReadNotifications?'Nur ungelesene':'Verlauf anzeigen'}</button></div>${shown.length?shown.map(n=>`<button class="notification-row ${!n.read_at?'unread':''}" data-action="notification-open" data-id="${n.id}"><span class="notification-symbol">${icon(n.related_person_id?'gift':n.kind==='comment'?'message':n.kind==='nudge'?'bell':'calendar',24)}</span><span><strong>${safe(notificationHeading(n))}</strong><p>${safe(n.message)}</p><small>${new Date(n.created_at).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'})}</small></span>${icon('chevron',18)}</button>`).join(''):'<div class="empty-state compact">Hier erscheinen Einladungen, Kommentare und Erinnerungen.</div>'}<p class="form-help notice">Persönliche Erinnerungen enden automatisch nach dem Termin. Für Hinweise auf dem Sperrbildschirm kannst du die Geräte-Benachrichtigungen aktivieren.</p>`;}
 
 function pendingView(){const list=pendingEvents();return `<p class="form-help">${list.length?'Diese Einladungen und Abstimmungen warten noch auf deine Rückmeldung.':'Du hast aktuell alle Einladungen beantwortet.'}</p><div class="event-list">${list.map(eventCard).join('')}</div>`;}
 
@@ -500,9 +536,10 @@ async function saveNewEvent(form){
  const f=new FormData(form),planMode=String(f.get('plan_mode')||'fixed');
  const title=String(f.get('title')||'').trim(),teaser=String(f.get('teaser')||'').trim();
  if(!title||teaser.length>90){toast('Titel oder Einladungssatz überprüfen.');return;}
+ if(!meetingPlaceValue(form)){toast('Bitte einen Treffpunkt auswählen oder eine Adresse eintragen.');form.querySelector('[name="location"]')?.focus();return;}
  const hosts=[...form.querySelectorAll('input[name="hosts"]:checked')].map(x=>x.value);
  const payload={p_mode:planMode,p_title:title,p_kind:String(f.get('kind')||'gathering'),p_teaser:teaser,
-  p_location:String(f.get('location')||'').trim(),p_description:String(f.get('description')||'').trim(),
+  p_location:meetingPlaceValue(form),p_description:String(f.get('description')||'').trim(),
   p_invitees:invitedFromForm(form),p_hosts:hosts,p_card_color:String(f.get('card_color')||'blue'),
   p_event_date:null,p_event_time:null,p_deadline:null,p_poll_deadline:null,p_options:[]};
  if(planMode==='poll'){
@@ -522,13 +559,14 @@ async function saveNewEvent(form){
 
 async function saveExistingEvent(form){const id=form.dataset.id,e=data.events.find(x=>x.id===id);if(!e||!isEventAdmin(e))return;
  const f=new FormData(form),deadline=String(f.get('deadline')||'');
+ if(!meetingPlaceValue(form)){toast('Bitte einen Treffpunkt auswählen oder eine Adresse eintragen.');return;}
  if(!isPoll(e)&&deadline>e.event_date){toast('Die Antwortfrist liegt nach dem Termin.');return;}
  const newHosts=[...form.querySelectorAll('input[name="hosts"]:checked')].map(x=>x.value);
  const oldHosts=cohostIds(id),hostsAdd=newHosts.filter(x=>!oldHosts.includes(x)),hostsRemove=oldHosts.filter(x=>!newHosts.includes(x));
  const invited=[...new Set([...invitedFromForm(form),...newHosts,...oldHosts])],old=eventInvites(id);
  const add=invited.filter(x=>!old.includes(x)),remove=old.filter(x=>!invited.includes(x));
  const fields={title:String(f.get('title')).trim(),teaser:String(f.get('teaser')).trim(),kind:String(f.get('kind')),
-  card_color:String(f.get('card_color')||'blue'),location_text:String(f.get('location')).trim(),description:String(f.get('description')).trim()};
+  card_color:String(f.get('card_color')||'blue'),location_text:meetingPlaceValue(form),description:String(f.get('description')).trim()};
  if(!isPoll(e))fields.response_deadline=deadline;
  await work(async()=>{
   await API.updateEvent(id,fields);
@@ -597,7 +635,7 @@ async function updateCompanions(input){const id=input.dataset.event,e=data.event
 async function readNotification(id){const n=data.notifications.find(x=>x.id===id);if(!n)return;
  await work(()=>API.markRead([id]),null,async()=>{if(n.related_person_id)showModal('person',n.related_person_id);else if(n.event_id&&data.events.some(e=>e.id===n.event_id))showModal('event',n.event_id);else showModal('notifications');});
 }
-async function openNotifications(){showModal('notifications');const ids=unread().map(n=>n.id);if(ids.length)await work(()=>API.markRead(ids),null,async()=>showModal('notifications'));}
+async function openNotifications(){showReadNotifications=false;showModal('notifications');}
 function toPushKey(base64){const pad='='.repeat((4-base64.length%4)%4);const raw=atob((base64+pad).replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from(raw,c=>c.charCodeAt(0));}
 async function enableNotifications(){
  if(!('Notification' in window)||!('serviceWorker' in navigator)||!('PushManager' in window)){
@@ -702,6 +740,7 @@ document.addEventListener('click',async ev=>{
  if(a==='copy-invite'||a==='share-invite'){const code=modal?.code;if(!code)return;const url=invitationLink(code);try{if(a==='share-invite'&&navigator.share)await navigator.share({title:'Familienzeit-Einladung',text:'Dein persönlicher Zugang zu unserem Familienkalender',url});else{await navigator.clipboard.writeText(url);toast('Persönlicher Einladungslink kopiert.');}}catch(err){if(err?.name!=='AbortError')toast('Bitte den Link markieren und kopieren.');}return;}
  if(a==='account'){showModal('account');return;}
  if(a==='notifications'){await openNotifications();return;}
+ if(a==='notifications-history'){showReadNotifications=!showReadNotifications;renderModal();return;}
  if(a==='notification-open'){await readNotification(id);return;}
  if(a==='enable-notifications'){await enableNotifications();return;}
  if(a==='calendar-day'){selectedDay=el.dataset.date;render();return;}
@@ -755,6 +794,7 @@ document.addEventListener('submit',async ev=>{
 let invitePreviewTimer=null;document.addEventListener('input',ev=>{if(ev.target.closest('#new-event-form'))storeEventDraft();if(ev.target.name==='code'&&ev.target.closest('#register-form')){inviteCode=ev.target.value.trim().toLowerCase();clearTimeout(invitePreviewTimer);if(/^[0-9a-f]{24}$/.test(inviteCode))invitePreviewTimer=setTimeout(loadInvitePreview,500);}});
 document.addEventListener('change',async ev=>{
  if(ev.target.name==='plan_mode'&&ev.target.closest('#new-event-form'))toggleNewEventMode(ev.target.closest('form'));
+ if(ev.target.name==='meet_kind')syncMeetingPlace(ev.target.closest('form'));
  if(ev.target.closest('#new-event-form'))storeEventDraft();
  const poll=ev.target.closest('#poll-vote-form');
  if(poll&&(ev.target.name==='poll_cannot'||ev.target.name==='poll_choice')){
@@ -842,7 +882,7 @@ window.addEventListener('focus',checkOnReturn);
 window.addEventListener('online',checkOnReturn);
 window.setInterval(()=>checkForAppUpdate(),UPDATE_CHECK_INTERVAL);
 if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost')){
- navigator.serviceWorker.register('./sw.js?v=150',{updateViaCache:'none'})
+ navigator.serviceWorker.register('./sw.js?v=160',{updateViaCache:'none'})
   .then(reg=>{
    reg.update().catch(()=>{});
    // Falls der SW das Update unabhaengig entdeckt, sofort den Hinweis aktualisieren.

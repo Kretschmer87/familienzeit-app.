@@ -854,3 +854,67 @@ body{background:radial-gradient(ellipse 400px 340px at 107% 50px,rgba(248,233,21
  .fz-list-map{width:37px;margin-right:5px;}
 }
 @media(prefers-reduced-motion:reduce){.fz-list-row,.fz-view-toggle button{transition:none}}
+
+/* Familienzeit 1.6 — gezielte, ruhige Detailkorrekturen */
+.dashboard-welcome{min-height:128px!important;padding:17px 19px 15px!important;margin-bottom:15px!important;border-radius:25px!important}
+.dashboard-welcome h1{font-size:clamp(22px,5.9vw,27px)!important;line-height:1.16!important}
+.dashboard-welcome p{font-size:13.8px!important;margin:5px 0 8px!important;max-width:380px!important}
+.welcome-actions{min-height:40px!important;gap:10px!important}
+.welcome-counter{font-size:13px!important;padding:7px 10px!important;min-height:38px!important}
+.birthday-quick{width:42px!important;height:42px!important;flex-basis:42px!important;border-radius:14px!important}
+.welcome-sculpt{width:105px!important;height:110px!important;right:0!important;top:0!important;opacity:.63!important}
+.welcome-sculpt svg{width:60px;height:60px}
+@media(max-width:350px){.dashboard-welcome{padding:14px 15px 12px!important}.dashboard-welcome h1{font-size:21px!important}}
+
+/* Birthdays must be recognizable immediately in a seven-column calendar. */
+.calendar-day.has-birthday{background:linear-gradient(155deg,#fff2dd,#fff9ed);border:1px solid #edcb8d;box-shadow:inset 0 2px 1px #fff,0 4px 10px rgba(194,142,62,.16);color:#835f27;position:relative}
+.calendar-day.has-birthday.today{border-color:#dda954}
+.calendar-day.has-birthday.selected{background:linear-gradient(160deg,#e4f1ff,#d3e9fb);color:#355e83;border:2px solid #6ea3cd}
+.calendar-day .calendar-day-number{display:block;font-weight:850;line-height:1.1}
+.calendar-day.has-birthday .day-dots{display:flex;align-items:center;justify-content:center;gap:3px;margin-top:3px}
+.birthday-calendar-gift{display:grid;place-items:center;width:21px;height:21px;border-radius:7px;background:linear-gradient(145deg,#f3cd91,#f9e1b8);color:#935d28;box-shadow:inset 0 1px 1px rgba(255,255,255,.91),0 2px 4px rgba(170,120,65,.16)}
+.birthday-calendar-gift svg{width:15px;height:15px;stroke-width:2.35}
+.calendar-legend span svg{vertical-align:middle;color:#aa803e;margin-right:4px}
+@media(max-width:370px){.birthday-calendar-gift{width:19px;height:19px}.birthday-calendar-gift svg{width:14px;height:14px}}
+
+/* Segmented, accessible location chooser: meeting place required, exact address optional for home. */
+.meeting-place{padding:16px 13px;border:1px solid #dbe7f1;border-radius:19px;background:linear-gradient(150deg,#fff,#f6fafe);box-shadow:0 6px 18px rgba(53,100,145,.05)}
+.meeting-place legend{font-size:18px!important;font-weight:850!important}
+.meeting-choice{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:10px 0 12px}
+.meeting-choice label{cursor:pointer;position:relative;min-width:0}
+.meeting-choice input{position:absolute;opacity:0;width:1px;height:1px}
+.meeting-choice label>span{display:flex;align-items:center;justify-content:center;gap:7px;min-height:73px;text-align:center;flex-direction:column;padding:10px 7px;color:#527189;font-size:14px;background:#fff;border:2px solid #dfebf3;border-radius:17px;box-shadow:inset 0 2px 1px #fff,0 4px 9px rgba(56,104,147,.05)}
+.meeting-choice label svg{color:#6899bd}
+.meeting-choice input:checked+span{background:linear-gradient(140deg,#e8f4ff,#f8fcff);color:#2d638f;border-color:#7caed5;box-shadow:inset 0 2px #fff,0 6px 15px rgba(73,131,179,.15)}
+.meeting-choice input:focus-visible+span{outline:3px solid #64a5d8;outline-offset:2px}
+.meeting-address[hidden]{display:none!important}.meeting-address{font-size:15px!important;margin-top:10px}.meeting-helper{margin:10px 0 0;font-size:13px}
+
+/* A little more depth for detail elements, maintaining the exact information layout. */
+.fz-detail-hero{box-shadow:inset 0 3px 2px rgba(255,255,255,.96),inset 0 -6px 13px rgba(110,160,190,.08),0 16px 30px rgba(50,104,145,.16),0 3px 7px rgba(53,104,145,.07)!important;border:1.5px solid rgba(255,255,255,.97)!important}
+.fz-detail-topic,.fz-detail-panel,.fz-detail-more{background:linear-gradient(162deg,#fff 0%,#fcfdff 64%,#f6faff 100%)!important;border:1px solid #dfeaf3!important;box-shadow:inset 0 2px 1px rgba(255,255,255,.99),0 11px 22px rgba(65,112,152,.10),0 3px 6px rgba(65,112,152,.045)!important}
+.fz-detail-topic-icon,.fz-detail-reminder-icon{background:linear-gradient(147deg,#eaf6ff,#cee5f7)!important;box-shadow:inset 0 2px 1px #fff,inset 0 -3px 7px rgba(88,155,206,.12),0 4px 9px rgba(63,111,147,.13)!important}
+.fz-detail-reminder,.fz-detail-rsvp-options .rsvp-btn,.fz-detail-route{box-shadow:inset 0 2px 1px rgba(255,255,255,.95),0 9px 19px rgba(65,112,152,.12)!important;transition:transform .14s,box-shadow .14s}
+.fz-detail-reminder:active,.fz-detail-rsvp-options .rsvp-btn:active,.fz-detail-route:active{transform:translateY(1px)}
+.fz-detail-more{overflow:hidden}
+
+/* Category options: slightly richer graphic icons, same existing eight symbols. */
+.category-radio>span{background:linear-gradient(150deg,#fff,#f3f8fc)!important;box-shadow:inset 0 2px 2px #fff,0 8px 16px rgba(70,113,149,.095)!important;gap:8px}
+.category-radio svg{border-radius:13px;padding:5px;width:41px!important;height:41px!important;color:#5b91b7;background:linear-gradient(145deg,#f4faff,#dcecf9);box-shadow:inset 0 2px 1px white,0 5px 9px rgba(63,114,150,.13);stroke-width:2.1}
+.category-radio:nth-child(2) svg{background:linear-gradient(150deg,#fff3e4,#f9d5b2);color:#b47b40}
+.category-radio:nth-child(3) svg{background:linear-gradient(150deg,#f4fbe8,#daecc3);color:#73944e}
+.category-radio:nth-child(4) svg{background:linear-gradient(150deg,#f2edff,#ddd2fa);color:#7d70b0}
+.category-radio:nth-child(5) svg{background:linear-gradient(150deg,#fff2e9,#f8d4bd);color:#b47b5a}
+.category-radio:nth-child(6) svg{background:linear-gradient(150deg,#e8f8fa,#c8e7eb);color:#538e9a}
+.category-radio:nth-child(7) svg{background:linear-gradient(150deg,#f3f9e8,#d8ebc5);color:#6e9961}
+.category-radio:nth-child(8) svg{background:linear-gradient(150deg,#eef3fb,#d7e3f4);color:#6a85b0}
+
+/* Clear selection by color alone. Names retained as accessible input labels. */
+.color-option-face{min-height:68px!important;gap:0!important;border-radius:16px!important}
+.color-dot{width:40px!important;height:40px!important}
+.color-option input:checked+.color-option-face:after{content:'✓';position:absolute;top:5px;right:10px;color:#356d91;font-weight:900;font-size:16px}
+.color-option input:focus-visible+.color-option-face{outline:3px solid #4b9acd;outline-offset:2px}
+
+.notification-inbox-actions{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:1px 0 19px;min-height:40px}
+.notification-inbox-actions strong{color:#3b6687;font-size:16px}
+.notification-inbox-actions button{border:1px solid #c8dfef;background:linear-gradient(#fff,#edf6fd);color:#417699;border-radius:12px;min-height:39px;padding:8px 13px;font-weight:780;font-size:13px}
+.icon-btn.has-unread i{background:#d65b51!important;min-width:23px!important;height:23px!important;font-size:12px!important;box-shadow:0 3px 9px rgba(184,76,67,.32)}
