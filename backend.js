@@ -1,4 +1,4 @@
-/* Familienzeit 1.4 · Supabase-Browserzugang · nur öffentlicher Publishable Key */
+/* Familienzeit 1.8 · Supabase-Browserzugang · nur öffentlicher Publishable Key */
 const PROJECT_URL='https://lzkousocxlswizkycrai.supabase.co';
 const PUBLIC_KEY='sb_publishable_W3sSqSCfTTc152DrXPPXSQ_QoSoLpGS';
 let client=null;
@@ -23,7 +23,7 @@ export async function readAll(){
   }));
   return Object.fromEntries(pairs);
 }
-export async function createEvent(record){return ok(await db().rpc('create_family_plan',record));}
+export async function createEvent(record){return ok(await db().rpc('create_family_plan_v18',record));}
 export async function votePoll(event_id,option_ids,cannot){return ok(await db().rpc('vote_family_poll',{p_event_id:event_id,p_option_ids:option_ids,p_cannot:cannot}));}
 export async function syncCohosts(event_id,add,remove){
  if(add.length)ok(await db().from('event_cohosts').insert(add.map(person_id=>({event_id,person_id}))));
