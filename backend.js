@@ -1,4 +1,4 @@
-/* Familienzeit 1.9 · Supabase-Browserzugang · nur öffentlicher Publishable Key */
+/* Familienzeit 1.9.1 · Supabase-Browserzugang · nur öffentlicher Publishable Key */
 const PROJECT_URL='https://lzkousocxlswizkycrai.supabase.co';
 const PUBLIC_KEY='sb_publishable_W3sSqSCfTTc152DrXPPXSQ_QoSoLpGS';
 let client=null;

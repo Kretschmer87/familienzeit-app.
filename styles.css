@@ -1004,3 +1004,64 @@ body{background:radial-gradient(ellipse 400px 340px at 107% 50px,rgba(248,233,21
 @keyframes fzStepInBack{from{opacity:.24;transform:translateX(-23px) scale(.991)}to{opacity:1;transform:translateX(0) scale(1)}}
 @keyframes fzMarkerPop{0%{transform:scale(.88)}55%{transform:scale(1.13)}100%{transform:scale(1)}}
 @media(prefers-reduced-motion:reduce){.wizard-panel.fz-step-out-forward,.wizard-panel.fz-step-out-back,.wizard-panel.fz-step-in-forward,.wizard-panel.fz-step-in-back,.wizard-step-marker.fz-marker-pop{animation:none!important}}
+/* Familienzeit 1.9.1: Dashboard-Karten kompakter, alle Informationen bleiben sichtbar.
+   Scope bewusst nur Startseiten-Karten; Kalenderdetails und die gewählte
+   separate Listenansicht werden nicht verändert. */
+.dashboard-events.fz-dashboard-cards .event-card.family-event-card.demo-refined-card{
+  padding:13px 15px 0;
+}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .family-event-main{gap:11px;}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .family-date-tile{
+  flex:0 0 79px;width:79px;min-height:100px;height:auto;
+  border-radius:19px;padding:8px 4px 7px;
+}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .family-date-tile strong{font-size:36px;}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .family-date-symbol{margin-top:3px;}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .family-date-symbol svg{width:18px;height:18px;}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .family-event-info{padding-top:0;}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .family-event-category{font-size:13.2px;line-height:1.2;}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .family-event-title{
+  font-size:clamp(19px,4.65vw,22px)!important;line-height:1.22!important;
+  margin:4px 0 6px;
+}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .family-event-time{font-size:14.5px;gap:5px;}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .family-event-time svg{width:17px;height:17px;}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .family-event-host{
+  min-height:39px;margin-top:7px;padding:4px 7px;border-radius:12px;gap:6px;
+}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .family-event-host .avatar.xs{width:26px;height:26px;border-radius:9px;}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .family-event-host .host-identity b{font-size:10.5px;}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .family-event-host .host-identity strong{font-size:13.5px;}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .family-event-teaser{
+  margin-top:7px;font-size:13.5px;line-height:1.3;
+}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .demo-counts-row{
+  margin:9px 0 5px;padding:7px 0 0;gap:6px 12px;font-size:12.8px;
+}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .demo-counts-row svg{width:16px;height:16px;}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .demo-countdown{
+  padding:4px 7px;font-size:12px;border-radius:10px;
+}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .demo-footer{
+  min-height:42px;margin-top:0;padding:5px 0 8px;gap:7px;
+}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .demo-footer .family-event-stats{
+  font-size:12.5px;
+}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .family-event-status{
+  font-size:12px;padding:6px 8px;
+}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .demo-map-link{
+  min-width:38px;min-height:38px;width:38px;height:38px;
+}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .demo-footer-actions{gap:6px;}
+@media (max-width:380px){
+  .dashboard-events.fz-dashboard-cards .event-card.family-event-card.demo-refined-card{padding:12px 12px 0;}
+  .dashboard-events.fz-dashboard-cards .demo-refined-card .family-date-tile{flex-basis:70px;width:70px;min-height:92px;border-radius:17px;}
+  .dashboard-events.fz-dashboard-cards .demo-refined-card .family-date-tile strong{font-size:33px;}
+  .dashboard-events.fz-dashboard-cards .demo-refined-card .family-event-main{gap:9px;}
+  .dashboard-events.fz-dashboard-cards .demo-refined-card .family-event-host .host-identity strong{font-size:13px;}
+  .dashboard-events.fz-dashboard-cards .demo-refined-card .demo-counts-row{gap:5px 10px;font-size:12px;}
+  .dashboard-events.fz-dashboard-cards .demo-refined-card .demo-footer-actions{gap:5px;}
+  .dashboard-events.fz-dashboard-cards .demo-refined-card .family-event-status{font-size:11.5px;padding:6px 7px;}
+}
