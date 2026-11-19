@@ -918,3 +918,29 @@ body{background:radial-gradient(ellipse 400px 340px at 107% 50px,rgba(248,233,21
 .notification-inbox-actions strong{color:#3b6687;font-size:16px}
 .notification-inbox-actions button{border:1px solid #c8dfef;background:linear-gradient(#fff,#edf6fd);color:#417699;border-radius:12px;min-height:39px;padding:8px 13px;font-weight:780;font-size:13px}
 .icon-btn.has-unread i{background:#d65b51!important;min-width:23px!important;height:23px!important;font-size:12px!important;box-shadow:0 3px 9px rgba(184,76,67,.32)}
+/* Familienzeit 1.7: Rollengerechte Termine, Gästeliste und Ortssuche */
+.invite-person[hidden],.meeting-address[hidden],.place-suggestions[hidden]{display:none!important}
+.fz-admin-quick{background:linear-gradient(135deg,rgba(239,247,252,.99),rgba(255,251,246,.97));border:1px solid rgba(164,191,210,.48);box-shadow:0 13px 27px rgba(83,120,145,.105),inset 0 1px 2px white}
+.fz-admin-quick>header{display:flex;align-items:center;gap:12px;justify-content:space-between;flex-wrap:wrap}
+.fz-admin-quick h3{display:flex;align-items:center;gap:8px;font-size:20px;letter-spacing:-.4px}
+.fz-admin-quick-actions{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:18px}
+.fz-admin-quick-actions .btn{min-height:60px;line-height:1.28;font-size:15px;display:flex;align-items:center;justify-content:center;gap:8px;white-space:normal;text-align:center;padding:12px 11px}
+.fz-admin-quick-actions .btn.danger{background:linear-gradient(180deg,#fff8f8,#ffeaea);color:#ab4855;border:1px solid #ecc2c8;box-shadow:0 6px 17px rgba(165,73,79,.11),inset 0 1px white}
+.fz-admin-quick-actions .btn.secondary{background:linear-gradient(180deg,#fff,#eaf3f9);box-shadow:0 7px 15px rgba(89,127,153,.09),inset 0 1px white;border:1px solid #cbdde9}
+.fz-host-companions{padding:12px 0 0;margin-top:16px;border-top:1px solid rgba(104,126,146,.14)}
+.fz-host-companions summary{cursor:pointer;font-size:15px;font-weight:750;color:#54758d;min-height:40px;padding:9px 2px}
+.fz-host-companions .companion-list{margin-top:8px}
+.cancel-event-note{display:flex;gap:13px;align-items:flex-start;padding:16px;border-radius:18px;background:linear-gradient(140deg,#fff5f4,#fff9f7);border:1px solid #f4dbda;line-height:1.5;color:#69565f}
+.cancel-event-note svg{flex-shrink:0;color:#b05a63}.cancel-event-note strong{color:#713947;font-size:18px}
+.meeting-address{position:relative}.place-suggestions{padding:5px;background:#fff;border:1px solid #d9e5ef;border-radius:15px;box-shadow:0 12px 30px rgba(63,92,118,.13);margin-top:6px;overflow:hidden;max-height:290px;overflow-y:auto}
+.place-result{border:0;background:transparent;width:100%;padding:14px 10px;display:flex;align-items:center;gap:11px;min-height:52px;color:#344f60;text-align:left;font-size:14px;line-height:1.4;border-radius:10px}
+.place-result+ .place-result{border-top:1px solid #eef3f6}.place-result svg{flex-shrink:0;color:#719db9}
+.place-result:hover,.place-result:focus-visible{background:#eaf3f9}.place-result span{overflow-wrap:anywhere}
+.place-message{display:block;padding:14px 12px;font-size:14px;color:#728594;line-height:1.5}
+.place-source{display:flex;align-items:center;gap:6px;color:#83909d;font-size:11px;line-height:1.5;margin:8px 0 0}
+@media(max-width:360px){.fz-admin-quick-actions{grid-template-columns:1fr;gap:9px}.fz-admin-quick-actions .btn{min-height:52px}}
+/* Verwaltungsaktionen bleiben auch auf kleinen Geräten vollständig lesbar. */
+.fz-admin-quick-actions{grid-template-columns:1fr}
+@media(min-width:540px){.fz-admin-quick-actions{grid-template-columns:1fr 1fr}}
+
+.place-source a{color:#68869c;text-decoration:underline;text-underline-offset:2px}

@@ -1,6 +1,6 @@
-const VERSION='1.6';
+const VERSION='1.7';
 const CACHE='familienzeit-app-'+VERSION;
-const CORE=['./','./index.html','./app.js?v=160','./backend.js?v=160','./styles.css?v=160','./manifest.webmanifest?v=160','./icon.svg','./icon-180.png','./icon-192.png','./icon-512.png'];
+const CORE=['./','./index.html','./app.js?v=170','./backend.js?v=170','./styles.css?v=170','./manifest.webmanifest?v=170','./icon.svg','./icon-180.png','./icon-192.png','./icon-512.png'];
 self.addEventListener('install',e=>{
  e.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(CORE)).then(()=>self.skipWaiting()));
 });
