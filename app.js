@@ -1,5 +1,5 @@
-/* Familienzeit 1.8 · Entwurf, Von-Bis-Zeit, Kinder als Gastgeber */
-import * as API from './backend.js?v=180';
+/* Familienzeit 1.9 · Gefuehrter Terminassistent & persönliche Termine */
+import * as API from './backend.js?v=190';
 const $=q=>document.querySelector(q);
 const PEOPLE=['Martin','Stephanie','Fynn','Sonja','Mirco','Bela','Ella','Holger','Ivonne','Susanne'];
 const CATEGORIES=[
@@ -107,20 +107,21 @@ function futureEvent(e){
  if(isPoll(e))return e.poll_state==='voting'||(e.poll_state==='no_votes'&&isEventAdmin(e));
  return new Date(e.event_date+'T'+String(e.end_time||e.event_time).slice(0,5)+':00').getTime()>=Date.now();
 }
-function upcomingEvents(){return data.events.filter(futureEvent).sort(compareEventStarts);}
+function visibleToCurrentUser(e){const own=me();return !!own&&!!e&&(e.creator_user_id===user?.id||isEventAdmin(e)||eventInvites(e.id).includes(own.id));}
+function upcomingEvents(){return data.events.filter(e=>visibleToCurrentUser(e)&&futureEvent(e)).sort(compareEventStarts);}
 function isReminderExpired(n){
  if(!n.kind?.startsWith('personal_event_'))return false;
  const e=data.events.find(e=>e.id===n.event_id);
  return !e||e.status!=='active'||new Date(e.event_date+'T'+String(e.event_time).slice(0,5)+':00').getTime()<=Date.now();
 }
-function visibleNotifications(){return data.notifications.filter(n=>!isReminderExpired(n));}
+function visibleNotifications(){return data.notifications.filter(n=>(!n.event_id||data.events.some(e=>e.id===n.event_id&&visibleToCurrentUser(e)))&&!isReminderExpired(n));}
 function unread(){return visibleNotifications().filter(n=>!n.read_at);}
 async function fetchAvatars(){await Promise.all(data.people.filter(p=>p.avatar_path).map(async p=>{const c=avatarCache.get(p.id);if(c?.path===p.avatar_path&&c?.until>Date.now())return;try{const url=await API.avatarUrl(p.avatar_path);avatarCache.set(p.id,{url,path:p.avatar_path,until:Date.now()+45*60*1000});}catch(err){console.warn('Profilbild nicht verfügbar:',err);}}));}
 async function fetchData(){const oldIds=new Set(data.notifications.map(n=>n.id));const oldReady=mode==='ready';data=await API.readAll();peopleById=new Map(data.people.map(p=>[p.id,p]));accountsByUser=new Map(data.people.filter(p=>p.auth_user_id).map(p=>[p.auth_user_id,p]));if(!me()){mode='unlinked';render();return;}await fetchAvatars();mode='ready';render();if(oldReady)await notifyWhileOpen(data.notifications.filter(n=>!oldIds.has(n.id)));else await notifyWhileOpen(data.notifications.filter(n=>Date.now()-new Date(n.created_at).getTime()<120000));}
 function scheduleRefresh(){clearTimeout(refreshTimeout);refreshTimeout=setTimeout(()=>{if(!loadingAction&&user)fetchData().catch(e=>{console.warn('Aktualisierung fehlgeschlagen',e);});},430);}
 async function boot(){mode='loading';render();try{await API.connect();user=await API.getUser();if(!user){mode=inviteCode?'register':'login';render();if(inviteCode)loadInvitePreview();return;}await fetchData();API.isPushSubscribed().then(v=>{pushEnabled=v;}).catch(()=>{});unsubscribe?.();unsubscribe=API.subscribe(scheduleRefresh);setInterval(()=>{if(user&&document.visibilityState==='visible')scheduleRefresh();},45000);window.addEventListener('focus',scheduleRefresh);await openDeeplink();}catch(e){console.error(e);lastError=e.message||'Verbindungsfehler';mode='error';render();}}
 async function work(op,success,after){if(loadingAction)return;loadingAction=true;try{const result=await op();if(user)await fetchData();if(after)await after(result);if(success)toast(success);return result;}catch(err){console.error(err);toast('Nicht gespeichert: '+(err?.message||'Unbekannter Fehler'));}finally{loadingAction=false;}}
-async function openDeeplink(){const params=new URLSearchParams(location.search),ev=params.get('event'),p=params.get('person');if(ev&&data.events.some(e=>e.id===ev))showModal('event',ev);else if(p&&peopleById.has(p))showModal('person',p);if(ev||p)history.replaceState(null,'',location.pathname);}
+async function openDeeplink(){const params=new URLSearchParams(location.search),ev=params.get('event'),p=params.get('person');if(ev&&data.events.some(e=>e.id===ev&&visibleToCurrentUser(e)))showModal('event',ev);else if(p&&peopleById.has(p))showModal('person',p);if(ev||p)history.replaceState(null,'',location.pathname);}
 
 function layout(){
  const own=me(),newCount=unread().length;
@@ -315,12 +316,12 @@ function calendarView(){
  const y=month.getFullYear(),m=month.getMonth()+1,first=(new Date(y,m-1,1).getDay()+6)%7,last=new Date(y,m,0).getDate();let cells='';
  for(let i=0;i<first;i++)cells+='<span class="date-gap"></span>';
  for(let d=1;d<=last;d++){
-   const date=iso(y,m,d),hasEvent=data.events.some(e=>(isPoll(e)?new Date(e.poll_deadline).toLocaleDateString('sv-SE')===date:e.event_date===date)&&e.status!=='cancelled'),birthdayPeople=data.people.filter(p=>birthdayInYear(p,y)===date),birthday=birthdayPeople.length>0;
+   const date=iso(y,m,d),hasEvent=data.events.some(e=>visibleToCurrentUser(e)&&(isPoll(e)?new Date(e.poll_deadline).toLocaleDateString('sv-SE')===date:e.event_date===date)&&e.status!=='cancelled'),birthdayPeople=data.people.filter(p=>birthdayInYear(p,y)===date),birthday=birthdayPeople.length>0;
    const birthdayName=birthdayPeople.map(p=>p.display_name).join(', ');
    cells+=`<button class="calendar-day ${birthday?'has-birthday':''} ${date===selectedDay?'selected':''} ${date===localDate()?'today':''}" data-action="calendar-day" data-date="${date}" title="${birthday?safe('Geburtstag: '+birthdayName):safe(fmt(date))}" aria-label="${safe(fmt(date))}${birthday?', Geburtstag von '+safe(birthdayName):''}${hasEvent?', Termin':''}"><span class="calendar-day-number">${d}</span><span class="day-dots">${birthday?`<span class="birthday-calendar-gift" aria-hidden="true">${icon('gift',15)}</span>`:''}${hasEvent?'<i class="event-dot"></i>':''}</span></button>`;
  }
- const date=selectedDay,dayEvents=data.events.filter(e=>isPoll(e)?new Date(e.poll_deadline).toLocaleDateString('sv-SE')===date:e.event_date===date).sort((a,b)=>String(a.event_time).localeCompare(String(b.event_time))),birthdays=data.people.filter(p=>birthdayInYear(p,+date.slice(0,4))===date);
- return `<div class="page-head"><p class="eyebrow">ALLES AUF EINEN BLICK</p><h1>Unser Kalender</h1><p>Alle Familientermine und Geburtstage zusammen.</p></div><section class="calendar-panel"><div class="month-heading"><h2>${safe(month.toLocaleDateString('de-DE',{month:'long',year:'numeric'}))}</h2><div class="month-controls"><button data-action="month-prev" aria-label="Vorheriger Monat">${icon('left',22)}</button><button data-action="month-next" aria-label="Nächster Monat">${icon('chevron',22)}</button></div></div><div class="weekday-grid">${['Mo','Di','Mi','Do','Fr','Sa','So'].map(x=>`<span>${x}</span>`).join('')}</div><div class="month-grid">${cells}</div><div class="calendar-legend"><span>${icon('gift',17)} Geburtstag</span><span><i class="event-dot"></i> Termin</span></div></section>
+ const date=selectedDay,dayEvents=data.events.filter(e=>visibleToCurrentUser(e)&&isPoll(e)?new Date(e.poll_deadline).toLocaleDateString('sv-SE')===date:e.event_date===date).sort((a,b)=>String(a.event_time).localeCompare(String(b.event_time))),birthdays=data.people.filter(p=>birthdayInYear(p,+date.slice(0,4))===date);
+ return `<div class="page-head"><p class="eyebrow">ALLES AUF EINEN BLICK</p><h1>Unser Kalender</h1><p>Deine Termine und die Geburtstage der Familie.</p></div><section class="calendar-panel"><div class="month-heading"><h2>${safe(month.toLocaleDateString('de-DE',{month:'long',year:'numeric'}))}</h2><div class="month-controls"><button data-action="month-prev" aria-label="Vorheriger Monat">${icon('left',22)}</button><button data-action="month-next" aria-label="Nächster Monat">${icon('chevron',22)}</button></div></div><div class="weekday-grid">${['Mo','Di','Mi','Do','Fr','Sa','So'].map(x=>`<span>${x}</span>`).join('')}</div><div class="month-grid">${cells}</div><div class="calendar-legend"><span>${icon('gift',17)} Geburtstag</span><span><i class="event-dot"></i> Termin</span></div></section>
  <div class="section-title"><div><p class="eyebrow">${safe(fmt(date,{weekday:'long'}).toUpperCase())}</p><h2>${safe(fmt(date,{day:'numeric',month:'long'}))}</h2></div></div>
  <div class="day-list">${birthdays.map(p=>`<button class="birthday-day-card" data-action="person" data-id="${p.id}">${avatar(p,'md')}<span><strong>${safe(p.display_name)} hat Geburtstag!</strong><small>Tippen, um eine Feier zu planen</small></span>${icon('gift',25)}</button>`).join('')}${dayEvents.map(e=>eventCard(e)).join('')}${!dayEvents.length&&!birthdays.length?'<div class="empty-state compact">Noch nichts an diesem Tag geplant.</div>':''}</div>`;
 }
@@ -335,7 +336,7 @@ function familyView(){
 function modalFrame(title,body,eyebrow='FAMILIENZEIT'){
  return `<div class="overlay"><div class="sheet" role="dialog" aria-modal="true" aria-label="${safe(title)}"><div class="sheet-grab"></div><div class="sheet-heading"><div><small>${safe(eyebrow)}</small><h2>${safe(title)}</h2></div><button class="sheet-close" type="button" data-action="close" aria-label="Schließen">${icon('x',24)}</button></div><div class="sheet-content">${body}</div></div></div>`;
 }
-function showModal(type,id=null){if(modal?.type==='new')storeEventDraft();modal={type,id};renderModal();document.body.classList.add('modal-open');}
+function showModal(type,id=null){if(modal?.type==='new')storeEventDraft();if(type==='new')wizardStep=0;modal={type,id};renderModal();document.body.classList.add('modal-open');}
 function closeModal(){if(modal?.type==='new')storeEventDraft();modal=null;$('#modal-root').innerHTML='';document.body.classList.remove('modal-open');}
 function renderModal(){if(!modal)return;if(modal.type==='new')storeEventDraft();let title='',body='',eyebrow='FAMILIENZEIT';const {type,id}=modal;
  if(type==='event'){const e=data.events.find(e=>e.id===id);if(!e){closeModal();return;}title=isPoll(e)?'Terminabstimmung':'Einladung';eyebrow='TERMINDETAILS';body=eventDetail(e);}
@@ -353,14 +354,16 @@ function renderModal(){if(!modal)return;if(modal.type==='new')storeEventDraft();
  else if(type==='invite'){const p=person(id);title='Einladung für '+p.display_name;eyebrow='EINFACHER ERSTZUGANG';const link=invitationLink(modal.code||'');body=`<p class="form-help">${safe(p.display_name)} öffnet den Link und richtet das eigene Passwort ein. Das Profil wird automatisch mit eurem gemeinsamen Kalender verbunden.</p><div class="invitation-code">${safe(link)}</div><button class="btn primary wide" data-action="share-invite">${icon('send',19)} Einladung teilen</button><button class="btn secondary wide" data-action="copy-invite">${icon('check',19)} Link kopieren</button><p class="form-help notice">Der Link gilt 14 Tage und lässt sich nur einmal verwenden. Bitte nur der vorgesehenen Person schicken.</p>`;}
  else if(type==='install'){title='Familienzeit installieren';eyebrow='AUF DEINEM HANDY';body=installGuide();}
  else if(type==='push-guide'){title='Benachrichtigungen';eyebrow='AUF DEINEM SMARTPHONE';body=pushGuide();}
- $('#modal-root').innerHTML=modalFrame(title,body,eyebrow);if(type==='new'){restoreEventDraft();toggleNewEventMode($('#new-event-form'));syncMeetingPlace($('#new-event-form'));syncGuestPicker($('#new-event-form'));}if(type==='edit'){syncMeetingPlace($('#edit-event-form'));syncGuestPicker($('#edit-event-form'));}
+ $('#modal-root').innerHTML=modalFrame(title,body,eyebrow);if(type==='new'){restoreEventDraft();toggleNewEventMode($('#new-event-form'));syncMeetingPlace($('#new-event-form'));syncGuestPicker($('#new-event-form'));updateWizardHostSummary($('#new-event-form'));setWizardStep(wizardStep,false);}if(type==='edit'){syncMeetingPlace($('#edit-event-form'));syncGuestPicker($('#edit-event-form'));}
 }
 function colorPicker(selected='blue'){
  return `<fieldset class="field-group color-field"><legend>Farbe auswählen</legend><p class="form-help">Deine Farbe wird später auch auf der Terminkarte angezeigt.</p><div class="color-options">${COLORS.map(v=>`<label class="color-option" title="${safe(v.name)}"><input type="radio" name="card_color" value="${v.id}" aria-label="${safe(v.name)}" ${selected===v.id?'checked':''}><span class="color-option-face"><i class="color-dot swatch-${v.id}"></i></span></label>`).join('')}</div></fieldset>`;
 }
-function categoryPicker(selected='gathering'){
- return `<fieldset class="field-group"><legend>Was habt ihr vor?</legend><div class="category-grid">${CATEGORIES.map(c=>`<label class="category-radio"><input type="radio" name="kind" value="${c.id}" ${selected===c.id?'checked':''} required><span>${icon(c.icon,27)}<b>${safe(c.name)}</b></span></label>`).join('')}</div></fieldset>`;
+const CATEGORY_PICTOGRAMS={coffee:'☕',birthday:'🎁',dining:'🥗',gathering:'🤝',party:'🎉',trip:'🏔️',holiday:'🗓️',other:'✨'};
+function categoryPicker(selected='gathering',wizard=false){
+ return `<fieldset class="field-group"><legend>Was habt ihr vor?</legend><div class="category-grid">${CATEGORIES.map(c=>`<label class="category-radio"><input type="radio" name="kind" value="${c.id}" ${selected===c.id?'checked':''} required><span>${wizard?`<span class="category-illustration" aria-hidden="true">${CATEGORY_PICTOGRAMS[c.id]||'✨'}</span>`:icon(c.icon,27)}<b>${safe(c.name)}</b></span></label>`).join('')}</div></fieldset>`;
 }
+
 function inviteePicker(selected=new Set(),chosenHosts=new Set()){
  const hosts=new Set(chosenHosts);
  return `<div class="invite-grid">${data.people.filter(p=>p.id!==me().id).map(p=>{
@@ -377,7 +380,7 @@ function syncGuestPicker(form){
   if(label)label.hidden=hosted;
  }
  const info=form.querySelector('.guest-picker-help');
- if(info)info.textContent=form.id==='new-event-form'?'Alle zunächst abgewählt. Du und weitere Gastgeber sind automatisch dabei.':'Gastgeber sind automatisch dabei, andere Personen lassen sich einzeln einladen.';
+ if(info)info.textContent=form.id==='new-event-form'?'Du kannst eine oder mehrere Personen auswählen.':'Gastgeber sind automatisch dabei, andere Personen lassen sich einzeln einladen.';
 }
 function hostPicker(selected=new Set()){
  const guests=data.people.filter(p=>p.id!==me().id);
@@ -392,33 +395,145 @@ function pollOptionRow(i,date='',time='15:00'){
  <label class="field">Uhrzeit<input class="input" type="time" name="poll_time_${i}" value="${safe(time)}" required></label>
  <button type="button" class="poll-remove-option" data-action="remove-poll-option" data-index="${i}" aria-label="Vorschlag entfernen">${icon('x',18)}</button></div>`;
 }
+function wizardHostPicker(){
+ const own=me();
+ return `<fieldset class="wizard-hosts-fieldset"><legend>Gastgeber</legend>
+ <details class="wizard-hosts-details" id="wizard-hosts-details">
+  <summary class="wizard-hosts-summary">${icon('users',25)}<span><strong>Gastgeber</strong><small id="wizard-hosts-selected">${safe(own?.display_name||'Du')}</small></span>${icon('down',20)}</summary>
+  <div class="wizard-hosts-list">
+   <label class="wizard-host-locked">${avatar(own,'sm')}<b>${safe(own?.display_name||'Du')}</b><input type="checkbox" checked disabled aria-label="Du bist der Ersteller und automatisch Gastgeber"><span class="wizard-host-lock">Fest</span></label>
+   ${data.people.filter(p=>p.id!==own?.id).map(p=>`<label class="wizard-host-choice">${avatar(p,'sm')}<b>${safe(p.display_name)}</b>${!p.can_login?'<small>Kind</small>':''}<input type="checkbox" name="hosts" value="${p.id}"></label>`).join('')}
+  </div>
+ </details>
+ <p class="wizard-hosts-note">Du bist automatisch Gastgeber. Weitere Gastgeber sind ebenfalls dabei; Kinder erhalten keine Adminrechte.</p>
+ </fieldset>`;
+}
+function updateWizardHostSummary(form){
+ if(!form)return;
+ const summary=form.querySelector('#wizard-hosts-selected');if(!summary)return;
+ const names=[me()?.display_name||'Du',...[...form.querySelectorAll('input[name="hosts"]:checked')].map(x=>person(x.value)?.display_name).filter(Boolean)];
+ summary.textContent=names.join(', ');
+}
+const WIZARD_STEPS=[{name:'Was',hint:'Worum geht es?',ico:'gift'},{name:'Wann',hint:'Wann soll es stattfinden?',ico:'calendar'},{name:'Wo',hint:'Wo treffen wir uns?',ico:'map'},{name:'Wer',hint:'Wer ist dabei?',ico:'users'},{name:'Weiteres',hint:'Letzte Details & Kontrolle',ico:'check'}];
+let wizardStep=0;
+function wizardStepBar(){return `<div class="wizard-progress" aria-label="Fortschritt bei der Terminplanung">${WIZARD_STEPS.map((item,i)=>`<button class="wizard-step-btn ${i===wizardStep?'active':i<wizardStep?'done':''}" type="button" data-action="wizard-jump" data-step="${i}" aria-label="Schritt ${i+1}: ${item.name}" ${i>wizardStep?'disabled':''}><span class="wizard-step-marker">${i<wizardStep?icon('check',15):i+1}</span><small>${item.name}</small></button>`).join('')}</div>`;}
 function newEventForm(){
  const draft=birthdayDraft,pFor=draft?person(draft.personId):null;
  const defaultDate=draft?.date||futureDate(14),title=draft?`Geburtstag von ${pFor.display_name}`:'',kind=draft?'birthday':'gathering';
  const pollEnd=futureDate(5)+'T18:00';
- return `<form id="new-event-form" class="stack">
- <p class="draft-safe-note">${icon('check',17)} Dein Entwurf wird automatisch gespeichert.</p>
- <fieldset class="field-group"><legend>Wie möchtet ihr planen?</legend><div class="plan-type-choice">
- <label class="plan-type"><input type="radio" name="plan_mode" value="fixed" checked><span>${icon('calendar',25)}<b>Fester Termin</b><small>Datum steht schon fest</small></span></label>
- <label class="plan-type"><input type="radio" name="plan_mode" value="poll"><span>${icon('users',25)}<b>Terminabstimmung</b><small>Gemeinsam Datum finden</small></span></label></div></fieldset>
- ${categoryPicker(kind)}${colorPicker(draft?'apricot':'blue')}
- <label class="field">Wie heißt euer Treffen?<input class="input" name="title" maxlength="120" placeholder="z. B. Familienfrühstück" value="${safe(title)}" required></label>
- <fieldset class="mode-field" data-mode-only="fixed"><legend>Wann findet es statt?</legend>
- <label class="field">Datum<input class="input" type="date" name="date" value="${defaultDate}" min="${localDate()}" required></label>
- <div class="two-fields"><label class="field">Beginn / Treffzeit<input class="input" type="time" name="time" value="15:00" required></label><label class="field">Ende <small>(optional)</small><input class="input" type="time" name="end_time" aria-label="Endzeit optional"></label></div>
- <label class="field">Bitte antworten bis<input class="input" type="date" name="deadline" value="${localDate()}" required></label></fieldset>
- <fieldset class="mode-field" data-mode-only="poll" hidden disabled><legend>Welche Termine stehen zur Wahl?</legend>
- <p class="form-help">Trage mindestens zwei Möglichkeiten ein. Jede Person kann einen oder mehrere passende Termine wählen.</p>
- <div id="poll-option-list">${[14,21,28].map((d,i)=>pollOptionRow(i,futureDate(d))).join('')}</div>
- <input name="poll_row_count" type="hidden" value="3"><button type="button" class="btn secondary wide" data-action="add-poll-option">${icon('plus',18)} Weiteren Vorschlag hinzufügen</button>
- <label class="field">Abstimmung endet am<input class="input" type="datetime-local" name="poll_deadline" value="${pollEnd}" required></label>
- <p class="form-help">Nach Fristablauf gewinnt die meistgewählte Möglichkeit. Bei Gleichstand entscheidet das frühere Datum. Anschließend müssen alle verbindlich zu- oder absagen.</p></fieldset>
- <label class="field">Einladungssatz <small>(optional)</small><input class="input" name="teaser" maxlength="90" placeholder="Ein kleiner Vorgeschmack …" value="${draft?'Wir freuen uns auf einen schönen Tag zusammen!':''}"></label>
- ${meetingPlacePicker('',true)}
- <label class="field">Das solltest du wissen <small>(optional)</small><textarea class="input" name="description" maxlength="3000" rows="3" placeholder="Was sollen die anderen mitbringen?"></textarea></label>
- ${hostPicker()}
- <fieldset class="field-group"><legend>Wen möchtest du einladen?</legend><p class="form-help guest-picker-help">Alle zunächst abgewählt. Du und weitere Gastgeber sind automatisch dabei.</p>${inviteePicker(new Set())}</fieldset>
- <button class="btn primary wide" type="submit">${icon('check',19)} <span class="submit-plan-label">Einladung erstellen</span></button></form>`;
+ return `<form id="new-event-form" class="stack wizard-form" novalidate>
+ ${wizardStepBar()}
+ <div class="wizard-panel" data-wizard-panel="0">
+   <div class="wizard-intro"><span class="wizard-kicker">SCHRITT 1 VON 5</span><h3>Was habt ihr vor?</h3><p>Wähle einen Anlass und gib eurem Treffen einen Namen.</p></div>
+   ${categoryPicker(kind,true).replace('Was habt ihr vor?','Anlass auswählen')}
+   ${wizardHostPicker()}
+   <label class="field">Wie heißt euer Treffen?<input class="input" name="title" maxlength="120" placeholder="z. B. Familienfrühstück" value="${safe(title)}" required></label>
+   ${colorPicker(draft?'apricot':'blue')}
+ </div>
+ <div class="wizard-panel" data-wizard-panel="1" hidden>
+   <div class="wizard-intro"><span class="wizard-kicker">SCHRITT 2 VON 5</span><h3>Wann findet es statt?</h3><p>Ein fester Termin oder eine Abstimmung mit mehreren Vorschlägen.</p></div>
+   <fieldset class="field-group"><legend>Wie möchtet ihr planen?</legend><div class="plan-type-choice">
+   <label class="plan-type"><input type="radio" name="plan_mode" value="fixed" checked><span>${icon('calendar',25)}<b>Fester Termin</b><small>Datum steht schon fest</small></span></label>
+   <label class="plan-type"><input type="radio" name="plan_mode" value="poll"><span>${icon('users',25)}<b>Terminabstimmung</b><small>Gemeinsam Datum finden</small></span></label></div></fieldset>
+   <fieldset class="mode-field" data-mode-only="fixed"><legend>Datum und Uhrzeit</legend>
+   <label class="field">Datum<input class="input" type="date" name="date" value="${defaultDate}" min="${localDate()}" required></label>
+   <div class="two-fields"><label class="field">Beginn / Treffzeit<input class="input" type="time" name="time" value="15:00" required></label><label class="field"><span class="wizard-inline-label">Ende <small>(optional)</small></span><input class="input" type="time" name="end_time" aria-label="Endzeit optional"></label></div>
+   <label class="field">Bitte antworten bis<input class="input" type="date" name="deadline" value="${localDate()}" required></label></fieldset>
+   <fieldset class="mode-field" data-mode-only="poll" hidden disabled><legend>Welche Termine stehen zur Wahl?</legend>
+   <p class="form-help">Trage mindestens zwei Möglichkeiten ein. Jede Person kann mehrere Termine auswählen.</p>
+   <div id="poll-option-list">${[14,21,28].map((d,i)=>pollOptionRow(i,futureDate(d))).join('')}</div>
+   <input name="poll_row_count" type="hidden" value="3"><button type="button" class="btn secondary wide" data-action="add-poll-option">${icon('plus',18)} Weiteren Vorschlag hinzufügen</button>
+   <label class="field">Abstimmung endet am<input class="input" type="datetime-local" name="poll_deadline" value="${pollEnd}" required></label>
+   <p class="form-help">Der meistgewählte Termin gewinnt nach Fristablauf. Danach können alle verbindlich zusagen.</p></fieldset>
+ </div>
+ <div class="wizard-panel" data-wizard-panel="2" hidden>
+   <div class="wizard-intro"><span class="wizard-kicker">SCHRITT 3 VON 5</span><h3>Wo treffen wir uns?</h3><p>„Bei uns zu Hause“ reicht aus. Alternativ kannst du einen Ort suchen oder eine Adresse eingeben.</p></div>
+   ${meetingPlacePicker('',true)}
+ </div>
+ <div class="wizard-panel" data-wizard-panel="3" hidden>
+   <div class="wizard-intro"><span class="wizard-kicker">SCHRITT 4 VON 5</span><h3>Wen möchtest du einladen?</h3><p>Wähle nur die Personen aus, die eine Einladung bekommen sollen.</p></div>
+   <div class="wizard-self-host">${icon('check',23)} <span><strong>Gastgeber sind automatisch dabei.</strong><small>Sie wurden bereits im ersten Schritt ausgewählt.</small></span></div>
+   <fieldset class="field-group"><legend>Gäste auswählen</legend><p class="form-help guest-picker-help">Alle zunächst abgewählt. Gastgeber erscheinen hier nicht erneut.</p>${inviteePicker(new Set())}</fieldset>
+ </div>
+ <div class="wizard-panel" data-wizard-panel="4" hidden>
+   <div class="wizard-intro"><span class="wizard-kicker">SCHRITT 5 VON 5</span><h3>Fast geschafft!</h3><p>Noch ein paar freiwillige Angaben – dann kannst du euren Termin erstellen.</p></div>
+   <label class="field">Einladungssatz <small>(optional)</small><input class="input" name="teaser" maxlength="90" placeholder="Ein kleiner Vorgeschmack …" value="${draft?'Wir freuen uns auf einen schönen Tag zusammen!':''}"></label>
+   <label class="field">Das solltest du wissen <small>(optional)</small><textarea class="input" name="description" maxlength="3000" rows="3" placeholder="Was sollen die anderen mitbringen?"></textarea></label>
+   <section class="wizard-recap" aria-label="Deine Angaben"><h4>${icon('check',19)} Dein Termin auf einen Blick</h4><div id="wizard-recap-lines"></div></section>
+   <p class="draft-safe-note">${icon('shield',17)} Vor dem Erstellen kannst du jeden Schritt erneut öffnen.</p>
+ </div>
+ <div class="wizard-footer"><button class="btn secondary" type="button" data-action="wizard-back" id="wizard-back" hidden>${icon('left',18)} Zurück</button><span class="wizard-page-count" id="wizard-page-count">1 / 5</span><button class="btn primary" type="button" data-action="wizard-next" id="wizard-next">Weiter ${icon('arrow',18)}</button><button class="btn primary" type="submit" id="wizard-save" hidden>${icon('check',19)} <span class="submit-plan-label">Einladung erstellen</span></button></div>
+ <p class="wizard-autosave">${icon('check',16)} Dein Entwurf bleibt beim Zurückgehen erhalten.</p>
+ </form>`;
+}
+function wizardRecap(form){
+ const v=n=>form.querySelector('[name="'+n+'"]')?.value||'',mode=form.querySelector('input[name="plan_mode"]:checked')?.value||'fixed';
+ const chosenHosts=[...form.querySelectorAll('input[name="hosts"]:checked')].map(x=>person(x.value)?.display_name).filter(Boolean);
+ const invites=[...form.querySelectorAll('input[name="invitees"]:checked')].map(x=>person(x.value)?.display_name).filter(Boolean);
+ const occasion=typeName(form.querySelector('input[name="kind"]:checked')?.value);
+ const location=meetingPlaceValue(form)||'Nicht eingetragen';
+ const when=mode==='poll'?`${[...form.querySelectorAll('[data-poll-row]')].length} Terminvorschläge · Abstimmung`:((v('date')?fmt(v('date'),{day:'numeric',month:'long',year:'numeric'}):'–')+' · '+(v('time')||'–')+(v('end_time')?'–'+v('end_time'):'')+' Uhr');
+ const lines=[['Was',v('title')||'Ohne Titel'],['Anlass',occasion],['Wann',when],['Wo',location],['Gastgeber',[me()?.display_name||'Du',...chosenHosts].join(', ')],['Eingeladen',invites.length?invites.join(', '):'Keine weiteren']];
+ const output=form.querySelector('#wizard-recap-lines');if(output)output.innerHTML=lines.map(([label,val])=>`<div><span>${safe(label)}</span><strong>${safe(val)}</strong></div>`).join('');
+}
+function wizardValid(form,step){
+ const val=n=>form.querySelector('[name="'+n+'"]')?.value?.trim()||'';
+ if(step===0){if(!val('title')){toast('Bitte gib deinem Termin einen Namen.');form.querySelector('[name="title"]')?.focus();return false;}return true;}
+ if(step===1){const isPoll=form.querySelector('input[name="plan_mode"]:checked')?.value==='poll';
+  if(isPoll){const rows=[...form.querySelectorAll('[data-poll-row]')];const opts=rows.map(row=>({d:row.querySelector('input[type="date"]')?.value,t:row.querySelector('input[type="time"]')?.value}));
+   if(opts.length<2||opts.some(x=>!x.d||!x.t)||new Set(opts.map(x=>x.d+'T'+x.t)).size!==opts.length){toast('Bitte mindestens zwei unterschiedliche Terminvorschläge eintragen.');return false;}
+   const expiry=new Date(val('poll_deadline')),earliest=new Date(opts.map(o=>o.d+'T'+o.t).sort()[0]);if(!val('poll_deadline')||expiry<=new Date()||expiry>=earliest){toast('Bitte eine Abstimmungsfrist vor dem ersten Termin wählen.');return false;}
+  }else{if(!val('date')||!val('time')||!val('deadline')){toast('Bitte Datum, Beginn und Antwortfrist angeben.');return false;}
+   if(val('deadline')>val('date')){toast('Die Antwortfrist muss spätestens am Termintag sein.');return false;}
+   if(val('end_time')&&val('end_time')<=val('time')){toast('Das Ende muss nach dem Beginn liegen.');return false;}}
+  return true;}
+ if(step===2){if(!meetingPlaceValue(form)){toast('Bitte wähle „Bei uns zu Hause“ oder trage einen Treffpunkt ein.');return false;}return true;}
+ return true;
+}
+let wizardTransitioning=false;
+function setWizardStep(step,scroll=true){
+ const form=$('#new-event-form');if(!form)return;
+ const target=Math.max(0,Math.min(4,step));
+ if(wizardTransitioning)return;
+ const from=wizardStep;
+ const finish=()=>{
+  if(!document.contains(form)){wizardTransitioning=false;return;}
+  wizardStep=target;
+  for(const panel of form.querySelectorAll('[data-wizard-panel]'))panel.hidden=Number(panel.dataset.wizardPanel)!==wizardStep;
+  form.querySelector('#wizard-back').hidden=wizardStep===0;
+  form.querySelector('#wizard-next').hidden=wizardStep===4;
+  form.querySelector('#wizard-save').hidden=wizardStep!==4;
+  form.querySelector('#wizard-page-count').textContent=`${wizardStep+1} / 5`;
+  for(const [i,button] of [...form.querySelectorAll('[data-action="wizard-jump"]')].entries()){
+   button.disabled=i>wizardStep;
+   button.classList.toggle('active',i===wizardStep);
+   button.classList.toggle('done',i<wizardStep);
+   button.querySelector('.wizard-step-marker').innerHTML=i<wizardStep?icon('check',15):String(i+1);
+  }
+  if(wizardStep===4)wizardRecap(form);
+  if(scroll){
+   const sheet=form.closest('.sheet');if(sheet)sheet.scrollTop=0;
+   const incoming=form.querySelector(`[data-wizard-panel="${wizardStep}"]`);
+   if(incoming){incoming.classList.remove('wizard-enter');incoming.classList.add(target>from?'fz-step-in-forward':'fz-step-in-back');
+    incoming.addEventListener('animationend',()=>incoming.classList.remove('fz-step-in-forward','fz-step-in-back'),{once:true});}
+   const marker=form.querySelector(`[data-action="wizard-jump"][data-step="${wizardStep}"] .wizard-step-marker`);
+   if(marker){marker.classList.add('fz-marker-pop');marker.addEventListener('animationend',()=>marker.classList.remove('fz-marker-pop'),{once:true});}
+  }
+  wizardTransitioning=false;
+  storeEventDraft();
+ };
+ if(!scroll||target===from||window.matchMedia('(prefers-reduced-motion: reduce)').matches){finish();return;}
+ wizardTransitioning=true;
+ const outgoing=form.querySelector(`[data-wizard-panel="${from}"]`);
+ if(outgoing){
+  outgoing.classList.remove('wizard-enter','fz-step-in-forward','fz-step-in-back');
+  outgoing.classList.add(target>from?'fz-step-out-forward':'fz-step-out-back');
+ }
+ // 78 ms departure and ~182 ms arrival = 260 ms total, no waiting screen.
+ setTimeout(()=>{
+  outgoing?.classList.remove('fz-step-out-forward','fz-step-out-back');
+  finish();
+ },78);
 }
 function toggleNewEventMode(form){
  if(!form)return;
@@ -557,7 +672,7 @@ function personDetail(p){
  ${p.birth_date?`<button class="btn primary wide" data-action="birthday-event" data-id="${p.id}">${icon('plus',20)} Einladung zum Geburtstag erstellen</button>`:''}
  ${canEdit?`<section class="detail-panel"><h3>${icon('edit',20)} Profil bearbeiten</h3><form id="profile-form" data-id="${p.id}" class="stack"><label class="field">Geburtstag<input class="input" type="date" name="birthdate" max="${localDate()}" value="${p.birth_date||''}"></label><p class="form-help">Du kannst einen Geburtstag jederzeit nachtragen oder ändern.</p><label class="field">Profilbild <small>(optional)</small><input class="input file-input" type="file" name="avatar" accept="image/jpeg,image/png,image/webp,image/heic,image/heif"></label><p class="form-help" id="avatar-file-status" aria-live="polite">${selectedAvatarFiles.get(p.id)?'Ausgewählt: '+safe(selectedAvatarFiles.get(p.id).name):'Noch kein Foto ausgewählt.'}</p><p class="form-help">Das Bild wird quadratisch zugeschnitten und privat gespeichert. Maximal 8 MB Originalgröße.</p><button class="btn primary wide" type="submit">${icon('check',19)} Profil speichern</button></form></section>`:''}`;
 }
-function accountView(){const own=me(),supported=('Notification' in window);return `<div class="account-profile">${avatar(own,'xl')}<div><h3>${safe(own.display_name)}</h3><p>${safe(user?.email||'Persönlich angemeldet')}</p></div></div><div class="account-section"><button class="account-link" data-action="person" data-id="${own.id}">${icon('camera',23)} <span>Mein Profil & Bild</span>${icon('chevron',20)}</button><button class="account-link" data-action="install-guide">${icon('plus',23)} <span>App auf diesem Gerät installieren <small>Android & iPhone – direkt auf den Startbildschirm</small></span>${icon('chevron',20)}</button><button class="account-link" data-action="push-guide">${icon('bell',23)} <span>Push-Benachrichtigungen <small>${pushEnabled?'Auf diesem Gerät eingerichtet':supported?Notification.permission==='denied'?'In den Geräteeinstellungen freigeben':'Jetzt einrichten':'Browser unterstützt keine Benachrichtigungen'}</small></span>${icon('chevron',20)}</button></div><p class="form-help notice">In der Glocke siehst du Einladungen, Kommentare und Erinnerungen. Mit eingerichteten Push-Benachrichtigungen können Hinweise auch bei geschlossener App ankommen.</p><p class="group-proof">${icon('users',17)} Gemeinsamer Familienkalender · ${data.people.length} Personen</p><p class="app-version">Familienzeit Version 1.8</p><button class="btn secondary wide" data-action="logout">${icon('logout',19)} Abmelden</button>`;}
+function accountView(){const own=me(),supported=('Notification' in window);return `<div class="account-profile">${avatar(own,'xl')}<div><h3>${safe(own.display_name)}</h3><p>${safe(user?.email||'Persönlich angemeldet')}</p></div></div><div class="account-section"><button class="account-link" data-action="person" data-id="${own.id}">${icon('camera',23)} <span>Mein Profil & Bild</span>${icon('chevron',20)}</button><button class="account-link" data-action="install-guide">${icon('plus',23)} <span>App auf diesem Gerät installieren <small>Android & iPhone – direkt auf den Startbildschirm</small></span>${icon('chevron',20)}</button><button class="account-link" data-action="push-guide">${icon('bell',23)} <span>Push-Benachrichtigungen <small>${pushEnabled?'Auf diesem Gerät eingerichtet':supported?Notification.permission==='denied'?'In den Geräteeinstellungen freigeben':'Jetzt einrichten':'Browser unterstützt keine Benachrichtigungen'}</small></span>${icon('chevron',20)}</button></div><p class="form-help notice">In der Glocke siehst du Einladungen, Kommentare und Erinnerungen. Mit eingerichteten Push-Benachrichtigungen können Hinweise auch bei geschlossener App ankommen.</p><p class="group-proof">${icon('users',17)} Gemeinsamer Familienkalender · ${data.people.length} Personen</p><p class="app-version">Familienzeit Version 1.9</p><button class="btn secondary wide" data-action="logout">${icon('logout',19)} Abmelden</button>`;}
 function notificationActor(n){
  const e=data.events.find(e=>e.id===n.event_id);
  return accountsByUser.get(n.actor_user_id)||accountsByUser.get(n.kind==='invited'||n.kind==='rescheduled'||n.kind==='cancelled'?e?.creator_user_id:null)||null;
@@ -756,6 +871,9 @@ document.addEventListener('click',async ev=>{
  const a=el.dataset.action,id=el.dataset.id;
  if(a==='close-backdrop'){return;} // Outside taps never discard a draft.
  if(a==='pick-place'){const form=el.closest('form'),input=form?.querySelector('input[name="location"]');if(input){input.value=el.dataset.place||'';input.dispatchEvent(new Event('change',{bubbles:true}));clearPlaceResults(form);input.focus();if(form.id==='new-event-form')storeEventDraft();}return;}
+ if(a==='wizard-next'){const form=$('#new-event-form');if(form&&wizardValid(form,wizardStep))setWizardStep(wizardStep+1);return;}
+ if(a==='wizard-back'){setWizardStep(wizardStep-1);return;}
+ if(a==='wizard-jump'){const requested=Number(el.dataset.step);if(requested<=wizardStep)setWizardStep(requested);return;}
  if(a==='close'){closeModal();return;}
  if(a==='apply-update'){await applyAvailableUpdate();return;}
  if(a==='retry'){boot();return;}
@@ -852,7 +970,7 @@ let invitePreviewTimer=null;document.addEventListener('input',ev=>{if(ev.target.
 document.addEventListener('change',async ev=>{
  if(ev.target.name==='plan_mode'&&ev.target.closest('#new-event-form'))toggleNewEventMode(ev.target.closest('form'));
  if(ev.target.name==='meet_kind'){syncMeetingPlace(ev.target.closest('form'));clearPlaceResults(ev.target.closest('form'));}
- if(ev.target.name==='hosts'){syncGuestPicker(ev.target.closest('form'));}
+ if(ev.target.name==='hosts'){syncGuestPicker(ev.target.closest('form'));updateWizardHostSummary(ev.target.closest('form'));}
  if(ev.target.closest('#new-event-form'))storeEventDraft();
  const poll=ev.target.closest('#poll-vote-form');
  if(poll&&(ev.target.name==='poll_cannot'||ev.target.name==='poll_choice')){
