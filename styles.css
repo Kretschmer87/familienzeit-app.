@@ -1065,3 +1065,197 @@ body{background:radial-gradient(ellipse 400px 340px at 107% 50px,rgba(248,233,21
   .dashboard-events.fz-dashboard-cards .demo-refined-card .demo-footer-actions{gap:5px;}
   .dashboard-events.fz-dashboard-cards .demo-refined-card .family-event-status{font-size:11.5px;padding:6px 7px;}
 }
+
+/* Familienzeit 2.0 · interaktive Konzept-Demo */
+:root{--fz-demo-page:#eef3f8;}
+body{background:radial-gradient(ellipse at 80% 0%,#fbfaf8,transparent 45%),linear-gradient(165deg,#f0f5fa 0%,#eaf1f7 45%,#f0f3f6 100%)!important;}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse 45vw 30vh at 0% 13%,rgba(255,255,255,.7),transparent);}
+.dashboard-events.fz-dashboard-cards .event-card.family-event-card.demo-refined-card{border:1.5px solid rgba(255,255,255,.95);box-shadow:0 13px 28px rgba(51,83,113,.14),0 3px 8px rgba(45,72,102,.045)!important;}
+.dashboard-events.fz-dashboard-cards .event-card.family-event-card.demo-refined-card.is-next-event{transform:translateY(-2px) scale(1.015);border:2px solid #7ca7ca;box-shadow:0 22px 48px rgba(54,107,154,.25),0 6px 12px rgba(53,111,156,.13),inset 0 2px 2px #fff!important;z-index:2;}
+.dashboard-events.fz-dashboard-cards .event-card.family-event-card.demo-refined-card.is-next-event::after{content:"ALS NÄCHSTES";position:absolute;top:0;right:0;font-size:9px;font-weight:900;letter-spacing:.06em;color:#36668d;background:rgba(231,245,255,.91);border-radius:0 0 0 14px;padding:5px 10px;z-index:2;}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .family-date-tile{aspect-ratio:1 / 1!important;flex:0 0 92px!important;width:92px!important;min-height:92px!important;height:92px!important;border-radius:21px!important;padding:5px 3px!important;justify-content:center;}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .family-date-tile strong{font-size:34px!important;line-height:1.05;}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .family-date-symbol{margin-top:1px!important;}
+.fz-gmaps-brand{display:inline-grid;place-items:center;position:relative;width:24px;height:27px;flex:0 0 auto;}
+.fz-gmaps-brand svg{position:absolute;inset:0;height:27px;width:24px;}
+.fz-gmaps-official{position:absolute;inset:0;object-fit:contain;width:24px;height:27px;z-index:1;}
+.fz-detail-route .fz-gmaps-brand{width:21px;height:25px;}
+.fz-detail-route .fz-gmaps-brand img,.fz-detail-route .fz-gmaps-brand svg{width:21px;height:25px;}
+.fz-invite-status-panel{padding-bottom:17px!important;}
+.fz-invite-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px 6px;margin:17px 0 8px;}
+.fz-invite-person{display:flex;flex-direction:column;align-items:center;text-align:center;gap:3px;min-width:0;padding:11px 4px;border-radius:17px;background:linear-gradient(150deg,#f7f9fc,#eef3f7);border:1px solid #e7eef4;box-shadow:inset 0 2px 2px #fff,0 4px 12px rgba(65,92,120,.055);}
+.fz-invite-avatar{position:relative;display:block;width:47px;height:46px;margin-bottom:3px;}
+.fz-invite-avatar .avatar{width:45px;height:45px;transition:filter .1s,opacity .1s;}
+.fz-invite-person.is-pending .avatar{filter:grayscale(1);opacity:.45;}
+.fz-invite-person.is-declined .avatar{filter:grayscale(1);opacity:.4;}
+.fz-invite-person.is-maybe .avatar{filter:saturate(.45);opacity:.76;}
+.fz-invite-state-symbol{position:absolute;bottom:-3px;right:-3px;width:20px;height:20px;display:grid;place-items:center;border-radius:50%;background:#d3dce5;border:2px solid white;color:#72869a;}
+.fz-invite-person.is-confirmed .fz-invite-state-symbol{background:#6fa789;color:white;}
+.fz-invite-person.is-declined .fz-invite-state-symbol{background:#bd8491;color:white;}
+.fz-invite-person.is-maybe .fz-invite-state-symbol{background:#c99b58;color:white;}
+.fz-invite-person-name{font-size:13.5px;font-weight:780;color:#304c60;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;}
+.fz-invite-person small{font-size:10.7px;color:#688094;font-weight:650;line-height:1.25;}
+.fz-invite-person.is-pending{opacity:.80;}
+.fz-today-button,.fz-cal-gift{border:1px solid #c9dceb;box-shadow:inset 0 1px #fff,0 4px 12px #5e90b11c;background:linear-gradient(#fff,#eff7fc);border-radius:12px;color:#426c8b;min-height:37px;padding:5px 10px;font-weight:800;font-size:13px;}
+.fz-cal-gift{padding:5px 9px;display:grid;place-items:center;color:#af7d49;}
+.calendar-panel .month-controls{display:flex;align-items:center;gap:4px;}
+.calendar-day{min-height:66px;}
+.calendar-day .day-dots{display:flex;align-items:center;justify-content:center;gap:3px;flex-wrap:nowrap;margin-top:5px;min-height:12px;}
+.fz-calendar-mark{display:inline-block!important;width:16px!important;height:9px!important;min-width:10px!important;border-radius:4px!important;opacity:1!important;box-shadow:inset 0 1px rgba(255,255,255,.6),0 2px 3px rgba(70,100,119,.15);border:1px solid rgba(255,255,255,.45)!important;}
+.fz-mark-blue{background:#62a1d1}.fz-mark-green{background:#78bd98}.fz-mark-yellow{background:#efc56c}.fz-mark-apricot{background:#eeae80}.fz-mark-rose{background:#df94a7}.fz-mark-lavender{background:#bda4e4}
+.calendar-day:has(.fz-calendar-mark){background:linear-gradient(155deg,#fff,#eef5fa);border:1px solid #c4d8e7;box-shadow:0 3px 8px rgba(55,100,136,.07)}
+
+.calendar-day.has-event{border:1.5px solid #b6d4e7!important;box-shadow:inset 0 2px 2px #ffffffaf,0 4px 12px #5f88a02f!important;}
+.calendar-day.fz-day-blue{background:linear-gradient(150deg,#eff8ff,#cfe8fa)!important;border-color:#94c4e5!important;color:#3a7094;}
+.calendar-day.fz-day-green{background:linear-gradient(150deg,#effcf3,#c8edd5)!important;border-color:#91cfa7!important;color:#418465;}
+.calendar-day.fz-day-yellow{background:linear-gradient(150deg,#fffbee,#fae7af)!important;border-color:#e6c97d!important;color:#987333;}
+.calendar-day.fz-day-apricot{background:linear-gradient(150deg,#fff7ee,#f4d6b8)!important;border-color:#e5bd96!important;color:#9d724b;}
+.calendar-day.fz-day-rose{background:linear-gradient(150deg,#fff5f7,#f4d5df)!important;border-color:#e6b1c3!important;color:#a25e78;}
+.calendar-day.fz-day-lavender{background:linear-gradient(150deg,#faf6ff,#e5d9f8)!important;border-color:#baa7e0!important;color:#866fa8;}
+.calendar-day.has-birthday{background:linear-gradient(155deg,#fff4dc,#ffeccd)!important;}
+.fz-calendar-event-symbol{display:inline-grid!important;place-items:center;min-width:20px;height:20px;margin-top:1px;filter:drop-shadow(0 2px 2px #405b7b29);}
+.fz-calendar-event-symbol svg{width:18px;height:18px;stroke-width:2.1px;}
+.fz-picker-clear{display:block;margin:9px auto 0;border:0;background:transparent;padding:9px;color:#9e6271;font-size:13px;font-weight:750;}
+
+.calendar-day.selected{border:2px solid #5b96c6!important;}
+/* Browser-native date/time controls are visually hidden; in-app buttons are used. */
+.fz-picker-original{position:absolute!important;top:auto!important;left:-10000px!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important;overflow:hidden!important;}
+.fz-picker-field{min-width:0;}
+.fz-picker-opener{display:flex;align-items:center;justify-content:space-between;gap:9px;width:100%;padding:14px 13px;min-height:55px;border:1px solid #d9e5ef;border-radius:17px;background:linear-gradient(150deg,#fff,#f7fbff);box-shadow:inset 0 2px 1px #fff,0 4px 11px rgba(58,91,125,.06);color:#36536b;font-weight:760;font-size:16px;text-align:left;margin-top:6px;}
+.fz-picker-opener svg{flex:0 0 auto;}
+.fz-picker-layer{position:fixed;inset:0;z-index:10010;display:grid;place-items:end center;}
+.fz-picker-backdrop{position:absolute;inset:0;background:rgba(28,52,73,.39);backdrop-filter:blur(5px)}
+.fz-picker-dialog{position:relative;width:min(100%,480px);background:linear-gradient(175deg,#fff,#f2f7fb);border-radius:30px 30px 0 0;padding:18px 19px max(24px,env(safe-area-inset-bottom));box-shadow:0 -12px 44px rgba(30,54,80,.24);max-height:82dvh;overflow-y:auto;color:#2d4c65;}
+.fz-picker-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;}
+.fz-picker-head small{font-size:10px;letter-spacing:.12em;color:#7096af;font-weight:800;}
+.fz-picker-head h3{font-size:23px;letter-spacing:-.45px;margin:4px 0 0;}
+.fz-picker-head button,.fz-picker-month button{display:grid;place-items:center;width:42px;height:42px;border-radius:14px;background:#fff;color:#547d9d;border:1px solid #e1ebf3;}
+.fz-picker-month{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:3px 4px 15px;}
+.fz-picker-month strong{font-size:17px;}
+.fz-picker-days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px;text-align:center;}
+.fz-picker-days small{font-weight:750;color:#7c92a5;font-size:12px;padding-bottom:5px;}
+.fz-picker-days button{min-width:0;aspect-ratio:1;border:1px solid transparent;border-radius:13px;background:#f5f9fb;font-weight:760;color:#335776;font-size:14px;}
+.fz-picker-days button.is-today{border-color:#5c99c7;}
+.fz-picker-days button.is-picked,.fz-picker-scroll button.is-picked{background:linear-gradient(150deg,#86c7ed,#3e91c7);color:white;border-color:#5a9ecb;box-shadow:0 4px 12px #6ba6cf52;}
+.fz-picker-days button:disabled{opacity:.24;}
+.fz-picker-actions{display:grid;grid-template-columns:1fr 1.6fr;gap:10px;margin-top:20px;}
+.fz-picker-actions button{height:51px;border-radius:16px;font-weight:800;border:1px solid #dbe5ed;color:#56758e;background:#fff;}
+.fz-picker-actions .fz-picker-confirm{background:linear-gradient(#75b5e1,#3d8dbf);border-color:#408dbd;color:white;box-shadow:0 8px 19px #579bc646;}
+.fz-picker-hint{color:#718da2;font-size:14px;margin:1px 0 10px;}
+.fz-picker-two-columns{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.fz-picker-two-columns h4{margin:5px 0 9px;font-size:15px;color:#4d718e;}
+.fz-picker-scroll{height:240px;overflow:auto;overscroll-behavior:contain;display:grid;grid-template-columns:repeat(2,1fr);gap:7px;padding:3px;}
+.fz-picker-scroll button{height:45px;border-radius:13px;background:#f0f6fa;border:1px solid #dfebf4;color:#3e6584;font-weight:800;}
+.fz-picker-time-preview{text-align:center;font-size:24px;font-weight:850;color:#3d7299;margin:13px 0 3px;}
+@media(max-width:420px){
+ .dashboard-events.fz-dashboard-cards .demo-refined-card .family-date-tile{width:92px!important;min-height:92px!important;height:92px!important;flex-basis:92px!important;padding:3px!important;border-radius:18px!important;}
+ .dashboard-events.fz-dashboard-cards .demo-refined-card .family-date-tile strong{font-size:31px!important;}
+ .dashboard-events.fz-dashboard-cards .demo-refined-card .family-date-month{font-size:11px!important;}
+ .dashboard-events.fz-dashboard-cards .demo-refined-card .family-date-weekday{font-size:10px!important;}
+ .dashboard-events.fz-dashboard-cards .demo-refined-card .family-date-symbol svg{height:15px!important;}
+ .fz-invite-grid{gap:8px 5px;}
+ .fz-invite-person-name{font-size:12.5px;}
+ .fz-invite-person small{font-size:10px;}
+ .month-heading h2{font-size:19px;}
+ .fz-today-button{font-size:12px;padding:5px 7px;}
+ .calendar-panel .month-controls{gap:3px;}
+}
+@media(max-width:350px){.dashboard-events.fz-dashboard-cards .demo-refined-card .family-date-tile{width:84px!important;min-height:84px!important;height:84px!important;flex-basis:84px!important;}.fz-invite-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.calendar-panel .month-controls{gap:2px;}.fz-cal-gift{padding:4px 6px;}}
+
+
+/* Familienzeit Konzept 2.0.1 – ausschließlich Design-Feinschliff */
+/* Kein milchiger Lichtschleier vor Logo, Überschrift oder Kalender. */
+body::before { content:none!important; display:none!important; }
+/* Terminüberschrift bewusst einzeilig, ohne redundantem Untertitel. */
+.dashboard-section-head { align-items:center!important; margin-bottom:15px!important; }
+.dashboard-section-head h2 { margin:0!important; }
+/* Erstes Ereignis klar als nächstes erkennbar, jedoch ohne harten Rahmen. */
+.dashboard-events.fz-dashboard-cards .event-card.family-event-card.demo-refined-card.is-next-event {
+  transform:translateY(-1px) scale(1.007)!important;
+  border:1.5px solid rgba(122,169,207,.70)!important;
+  box-shadow:0 16px 32px rgba(61,112,152,.16),0 4px 10px rgba(61,112,152,.06),inset 0 1px 2px #fff!important;
+}
+/* "Als Nächstes" rechts neben der Kategorie, links vom Öffnen-Pfeil. */
+.dashboard-events.fz-dashboard-cards .event-card.family-event-card.demo-refined-card.is-next-event::after {
+  content:"Als Nächstes"!important;
+  top:10px!important;
+  right:48px!important;
+  left:auto!important;
+  padding:4px 8px!important;
+  border-radius:11px!important;
+  font-size:9px!important;
+  letter-spacing:0!important;
+  line-height:1.15!important;
+  font-weight:780!important;
+  color:#547d9b!important;
+  background:rgba(231,242,251,.88)!important;
+  border:1px solid rgba(180,210,233,.44)!important;
+  box-shadow:0 2px 5px rgba(57,98,135,.04)!important;
+  white-space:nowrap!important;
+  pointer-events:none;
+}
+/* Kalender: Heute-Text benötigt seine tatsächliche Breite, keine Icon-Fixbreite. */
+.calendar-panel .month-heading h2 { font-size:17.5px!important; white-space:nowrap; letter-spacing:-.45px!important; }
+.calendar-panel .month-controls { flex:0 0 auto!important; gap:3px!important; flex-wrap:nowrap!important; }
+.calendar-panel .month-controls > button { box-sizing:border-box; flex:0 0 37px; width:37px!important; min-width:37px!important; padding:4px!important; height:39px; min-height:39px; }
+.calendar-panel .month-controls > .fz-today-button {
+  display:inline-flex!important; justify-content:center; align-items:center;
+  flex:0 0 59px!important; width:59px!important; min-width:59px!important;
+  padding:5px 8px!important; white-space:nowrap!important; font-size:12px!important;
+}
+.calendar-panel .month-controls > .fz-cal-gift { display:grid!important; place-items:center!important; }
+@media(max-width:375px) {
+  .calendar-panel .month-heading { display:flex!important; flex-wrap:wrap!important; row-gap:10px!important; }
+  .calendar-panel .month-heading h2 { flex:1 0 100%!important; }
+  .calendar-panel .month-controls { margin-left:auto!important; }
+}
+@media(max-width:365px) {
+  .dashboard-events.fz-dashboard-cards .event-card.family-event-card.demo-refined-card.is-next-event::after {top:7px!important;right:41px!important;font-size:8px!important;padding:3px 5px!important;}
+}
+@media(prefers-reduced-motion:reduce){.dashboard-events.fz-dashboard-cards .event-card.family-event-card.demo-refined-card.is-next-event{transform:none!important}}
+
+
+/* Familienzeit Konzeptdemo 2.0.2: nur Details an Dashboard-Karten & Maps-Zugriff. */
+.dashboard-section-head h2{margin:0!important}
+/* Immer gleich hohe Karten: auch ohne Einladungssatz bleibt eine einzeilige Textzeile reserviert. */
+.dashboard-events.fz-dashboard-cards{grid-auto-rows:minmax(0,1fr);align-items:stretch}
+.dashboard-events.fz-dashboard-cards .event-card.family-event-card.demo-refined-card{
+  display:flex;flex-direction:column;height:100%;min-width:0;
+}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .demo-open-card{
+  display:flex;flex-direction:column;flex:1 0 auto;min-width:0;
+}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .family-event-teaser{
+  display:block!important;flex:0 0 auto;max-width:100%;min-width:0;
+  height:19px;line-height:19px!important;white-space:nowrap!important;
+  overflow:hidden!important;text-overflow:ellipsis!important;
+  margin-top:auto!important;padding-top:0!important;
+}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .family-event-teaser.is-empty{visibility:hidden;}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .demo-counts-row{flex:0 0 auto;}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .demo-footer{flex:0 0 auto;}
+/* Der erste Termin bleibt über die weiche Schattenkante erkennbar, aber nicht größer. */
+.dashboard-events.fz-dashboard-cards .event-card.family-event-card.demo-refined-card.is-next-event{
+  transform:translateY(-1px)!important;
+}
+.dashboard-events.fz-dashboard-cards .event-card.family-event-card.demo-refined-card.is-next-event::after{
+  display:none!important;content:none!important;
+}
+/* Echtes Google-Maps-Produktzeichen ohne gezeichneten Schein-Pin und ohne quadratischen Rahmen. */
+.fz-gmaps-real{display:block;object-fit:contain;width:30px;height:30px;max-width:100%;}
+.fz-maps-fallback{color:#4285f4;display:grid;place-items:center;}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .demo-map-link,
+.demo-footer-actions .demo-map-link,
+.fz-list-map{
+  border:0!important;border-radius:0!important;box-shadow:none!important;
+  background:transparent!important;
+  padding:0!important;
+}
+.dashboard-events.fz-dashboard-cards .demo-refined-card .demo-map-link{
+  width:39px!important;height:39px!important;min-width:39px!important;min-height:39px!important;
+}
+.fz-list-map .fz-gmaps-real{width:29px;height:29px}
+.fz-detail-route .fz-gmaps-real{width:23px;height:23px}
+.demo-footer-actions .demo-map-link:focus-visible,.fz-list-map:focus-visible{
+  outline:3px solid #4089c3!important;outline-offset:2px;
+}

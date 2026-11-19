@@ -1,5 +1,6 @@
-/* Familienzeit 1.9.1 · Gefuehrter Terminassistent & persönliche Termine */
-import * as API from './backend.js?v=191';
+/* Familienzeit 2.0.2 · Dashboard- und Interaktionsverbesserungen */
+import * as API from './backend.js?v=202';
+
 const $=q=>document.querySelector(q);
 const PEOPLE=['Martin','Stephanie','Fynn','Sonja','Mirco','Bela','Ella','Holger','Ivonne','Susanne'];
 const CATEGORIES=[
@@ -49,6 +50,79 @@ const path={
 };
 function icon(name,size=22){return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path[name]||path.info}</svg>`;}
 function safe(s){return String(s??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));}
+// In-app demo pickers. The original form controls retain ISO values for the existing
+// submission logic, but are not exposed to touch or focus (no OS date/time sheet).
+let fzPicker=null;
+function pickerValueLabel(input){
+ if(!input.value)return input.type==='time'?'Uhrzeit wählen':input.type==='datetime-local'?'Datum und Uhrzeit wählen':'Datum wählen';
+ if(input.type==='date')return fmt(input.value,{day:'2-digit',month:'2-digit',year:'numeric'});
+ if(input.type==='datetime-local')return fmt(input.value.slice(0,10),{day:'2-digit',month:'2-digit',year:'numeric'})+' · '+input.value.slice(11,16);
+ return input.value+' Uhr';
+}
+function installInAppPickers(form){
+ if(!form)return;
+ for(const input of form.querySelectorAll('input[type="date"],input[type="time"],input[type="datetime-local"]')){
+  if(input.dataset.fzCustom==='yes')continue;
+  input.dataset.fzCustom='yes';input.classList.add('fz-picker-original');input.tabIndex=-1;
+  const field=input.closest('label.field');
+  if(field){const wrap=document.createElement('div');wrap.className=field.className+' fz-picker-field';while(field.firstChild)wrap.appendChild(field.firstChild);field.replaceWith(wrap);}
+  const btn=document.createElement('button');btn.type='button';btn.className='fz-picker-opener';btn.dataset.fzOpen='yes';btn.setAttribute('aria-label','Datum oder Uhrzeit auswählen');
+  btn.innerHTML='<span>'+safe(pickerValueLabel(input))+'</span>'+icon('down',18);
+  input.insertAdjacentElement('afterend',btn);
+ }
+}
+function closeFzPicker(){document.getElementById('fz-picker-layer')?.remove();fzPicker=null;}
+function pickerDateParts(v){const x=v&&/^\d{4}-\d{2}-\d{2}/.test(v)?v.slice(0,10):localDate();return {year:+x.slice(0,4),month:+x.slice(5,7),date:x};}
+function openFzPicker(input){
+ if(!input)return;
+ closeFzPicker();
+ const isDate=input.type==='date',isCombined=input.type==='datetime-local';
+ const parts=pickerDateParts(input.value);
+ fzPicker={input,year:parts.year,month:parts.month,date:parts.date,time:(isCombined?input.value.slice(11,16):input.value)||'15:00',screen:isDate?'date':isCombined?'date':'time',combined:isCombined};
+ renderFzPicker();
+}
+function pickerCalendarMarkup(){
+ const p=fzPicker,offset=(new Date(p.year,p.month-1,1).getDay()+6)%7,last=new Date(p.year,p.month,0).getDate();
+ let days='<div class="fz-picker-days">'+['Mo','Di','Mi','Do','Fr','Sa','So'].map(x=>'<small>'+x+'</small>').join('');
+ for(let i=0;i<offset;i++)days+='<span></span>';
+ for(let d=1;d<=last;d++){
+  const v=iso(p.year,p.month,d),disabled=!!p.input.min&&v<p.input.min;
+  days+='<button type="button" data-fz-day="'+v+'" '+(disabled?'disabled':'')+' class="'+(v===p.date?'is-picked':'')+' '+(v===localDate()?'is-today':'')+'" aria-label="'+safe(fmt(v))+'">'+d+'</button>';
+ }
+ return '<div class="fz-picker-month"><button type="button" data-fz-nav="-1" aria-label="Vorheriger Monat">'+icon('left',22)+'</button><strong>'+new Date(p.year,p.month-1,10).toLocaleDateString('de-DE',{month:'long',year:'numeric'})+'</strong><button type="button" data-fz-nav="1" aria-label="Nächster Monat">'+icon('chevron',22)+'</button></div>'+days+'</div>';
+}
+function pickerTimeMarkup(){
+ const p=fzPicker;const [hr,min]=p.time.match(/^\d\d:\d\d$/)?p.time.split(':').map(Number):[15,0];
+ return '<p class="fz-picker-hint">Stunde und Minute auswählen.</p><div class="fz-picker-two-columns"><section><h4>Stunde</h4><div class="fz-picker-scroll">'+Array.from({length:24},(_,i)=>'<button type="button" data-fz-hour="'+i+'" class="'+(hr===i?'is-picked':'')+'">'+String(i).padStart(2,'0')+'</button>').join('')+'</div></section><section><h4>Minute</h4><div class="fz-picker-scroll">'+Array.from({length:60},(_,i)=>'<button type="button" data-fz-min="'+i+'" class="'+(min===i?'is-picked':'')+'">'+String(i).padStart(2,'0')+'</button>').join('')+'</div></section></div><div class="fz-picker-time-preview">'+safe(p.time)+' Uhr</div>';
+}
+function renderFzPicker(){
+ if(!fzPicker)return;
+ const p=fzPicker;let root=document.getElementById('fz-picker-layer');if(!root){root=document.createElement('div');root.id='fz-picker-layer';document.body.append(root);}
+ root.className='fz-picker-layer';
+ root.innerHTML='<div class="fz-picker-backdrop" data-fz-close="yes"></div><section class="fz-picker-dialog" role="dialog" aria-modal="true" aria-label="Datum und Uhrzeit auswählen"><div class="fz-picker-head"><div><small>FAMILIENZEIT</small><h3>'+(p.screen==='date'?'Datum auswählen':'Uhrzeit auswählen')+'</h3></div><button type="button" data-fz-close="yes" aria-label="Schließen">'+icon('x',24)+'</button></div>'+(p.screen==='date'?pickerCalendarMarkup():pickerTimeMarkup())+(p.input.required?'':'<button type="button" class="fz-picker-clear" data-fz-clear="yes">Auswahl entfernen</button>')+'<div class="fz-picker-actions"><button type="button" data-fz-close="yes">Abbrechen</button><button type="button" class="fz-picker-confirm" data-fz-confirm="yes">'+(p.combined&&p.screen==='date'?'Weiter zur Uhrzeit':'Übernehmen')+'</button></div></section>';
+ root.querySelector('.is-picked')?.scrollIntoView({block:'nearest'});
+}
+function confirmFzPicker(){
+ const p=fzPicker;if(!p)return;
+ if(p.combined&&p.screen==='date'){p.screen='time';renderFzPicker();return;}
+ const val=p.combined?p.date+'T'+p.time:p.input.type==='date'?p.date:p.time;
+ p.input.value=val;
+ p.input.dispatchEvent(new Event('change',{bubbles:true}));
+ const opener=p.input.nextElementSibling;const span=opener?.querySelector('span');if(span)span.textContent=pickerValueLabel(p.input);
+ closeFzPicker();
+}
+document.addEventListener('click',e=>{
+ if(e.target.closest('[data-fz-clear]')&&fzPicker){const p=fzPicker;p.input.value='';p.input.dispatchEvent(new Event('change',{bubbles:true}));const label=p.input.nextElementSibling?.querySelector('span');if(label)label.textContent=pickerValueLabel(p.input);closeFzPicker();return;}
+ const open=e.target.closest('[data-fz-open]');if(open){e.preventDefault();openFzPicker(open.previousElementSibling);return;}
+ const close=e.target.closest('[data-fz-close]');if(close){e.preventDefault();closeFzPicker();return;}
+ const sel=e.target.closest('[data-fz-day]');if(sel&&fzPicker){fzPicker.date=sel.dataset.fzDay;renderFzPicker();return;}
+ const nav=e.target.closest('[data-fz-nav]');if(nav&&fzPicker){const x=new Date(fzPicker.year,fzPicker.month-1+Number(nav.dataset.fzNav),1);fzPicker.year=x.getFullYear();fzPicker.month=x.getMonth()+1;renderFzPicker();return;}
+ const hr=e.target.closest('[data-fz-hour]');if(hr&&fzPicker){fzPicker.time=String(hr.dataset.fzHour).padStart(2,'0')+':'+fzPicker.time.slice(3,5);renderFzPicker();return;}
+ const mi=e.target.closest('[data-fz-min]');if(mi&&fzPicker){fzPicker.time=fzPicker.time.slice(0,2)+':'+String(mi.dataset.fzMin).padStart(2,'0');renderFzPicker();return;}
+ if(e.target.closest('[data-fz-confirm]')){confirmFzPicker();return;}
+},true);
+document.addEventListener('keydown',e=>{if(fzPicker&&e.key==='Escape'){e.preventDefault();closeFzPicker();}});
+
 function localDate(){const d=new Date();return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');}
 function iso(y,m,d){return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;}
 function fmt(date,options={day:'numeric',month:'long',year:'numeric'}){if(!date)return 'Nicht angegeben';return new Date(String(date).slice(0,10)+'T12:00:00').toLocaleDateString('de-DE',options);}
@@ -177,7 +251,7 @@ function homeListRow(e,featured=false){
  <span class="fz-list-text"><strong class="fz-list-title">${safe(e.title)}</strong><span class="fz-list-line">${safe(time)} <span aria-hidden="true">·</span> ${safe(host)}</span><span class="fz-list-stats">${poll?`${votes} abgestimmt`: `${invitees} eingeladen · ${accepted} zugesagt`}${countdown?' · '+countdown:''}</span></span>
  <span class="fz-list-chevron">${icon('chevron',19)}</span>
  </button>
- ${mapUrl?`<a class="fz-list-map" href="${mapUrl}" target="_blank" rel="noopener noreferrer" aria-label="Route nach ${safe(address)} in Google Maps öffnen" title="Route ansehen">${icon('map',20)}</a>`:''}
+ ${mapUrl?`<a class="fz-list-map" href="${mapUrl}" target="_blank" rel="noopener noreferrer" aria-label="Route nach ${safe(address)} in Google Maps öffnen" title="Route ansehen"><img class="fz-gmaps-real" src="https://www.gstatic.com/images/branding/product/2x/maps_96dp.png" alt="" loading="lazy" onload="this.nextElementSibling.style.display='none'" onerror="this.style.display='none'"><span class="fz-maps-fallback" aria-hidden="true" style="display:block">${icon('map',23)}</span></a>`:''}
  </article>`;
 }
 
@@ -252,19 +326,10 @@ function homeView(){
  const visible=homeFilter==='mine'?up.filter(e=>eventInvites(e.id).includes(own.id)):homeFilter==='pending'?pending:up;
  const currentFilter=homeFilter==='mine'?'Meine':homeFilter==='pending'?'Offene':'Alle';
  const installHint=!isInstalled()&&localStorage.getItem('fz11-show-install')==='yes';
- return `<section class="dashboard-welcome" aria-label="Dein Familienüberblick">
-   <span class="welcome-sheen" aria-hidden="true"></span>
-   <div class="welcome-content">
-    <h1>${greeting()}, ${name}!</h1>
-    <p>Hier siehst du, was ihr gemeinsam vorhabt.</p>
-    <div class="welcome-actions"><span class="welcome-counter">${icon('calendar',19)} ${up.length} ${up.length===1?'Termin':'Termine'} geplant</span>
-    <button type="button" class="birthday-quick" data-action="birthdays" title="Geburtstage ansehen" aria-label="Geburtstage ansehen${imminent?`, ${imminent} bald`:''}">${icon('gift',23)}${imminent?`<i aria-hidden="true">${imminent}</i>`:''}</button></div>
-   </div><div class="welcome-sculpt" aria-hidden="true"><span class="sculpt-glow"></span>${icon('heart',75)}</div>
- </section>
- ${typeof Notification!=='undefined'&&Notification.permission!=='granted'&&localStorage.getItem('fz13-hide-push')!=='yes'?`<div class="push-onboarding">${icon('bell',21)}<span><b>Keine Termine verpassen</b><small>Erinnerungen direkt aufs Smartphone bekommen</small></span><button type="button" data-action="push-guide">Aktivieren</button><button type="button" class="push-dismiss" aria-label="Hinweis ausblenden" data-action="push-dismiss">${icon('x',16)}</button></div>`:''}
+ return ` ${typeof Notification!=='undefined'&&Notification.permission!=='granted'&&localStorage.getItem('fz13-hide-push')!=='yes'?`<div class="push-onboarding">${icon('bell',21)}<span><b>Keine Termine verpassen</b><small>Erinnerungen direkt aufs Smartphone bekommen</small></span><button type="button" data-action="push-guide">Aktivieren</button><button type="button" class="push-dismiss" aria-label="Hinweis ausblenden" data-action="push-dismiss">${icon('x',16)}</button></div>`:''}
  ${installHint?`<div class="install-hint">${icon('sparkle',20)} <span>Familienzeit wie eine App nutzen</span><button data-action="install-guide">Installieren</button><button class="install-hint-dismiss" aria-label="Hinweis ausblenden" data-action="install-dismiss">${icon('x',17)}</button></div>`:''}
  ${pending.length?`<button class="pending-action" type="button" data-action="pending"><span class="pending-action-icon">${icon('bell',25)}</span><span class="pending-action-copy"><strong>${pending.length===1?(isPoll(pending[0])?'Eine Abstimmung offen':'Eine Rückmeldung offen'):`${pending.length} Einladungen / Abstimmungen offen`}</strong><small>Tippen und auswählen</small></span>${icon('chevron',24)}</button>`:''}
- <div class="dashboard-section-head"><div><h2>Nächste Termine</h2><p>Unsere gemeinsamen Pläne</p></div><div class="fz-dashboard-controls"><button type="button" class="fz-view-button" data-action="home-view" aria-label="${homeViewMode()==='cards'?'Zur kompakten Listenansicht wechseln':'Zur großen Kartenansicht wechseln'}" title="${homeViewMode()==='cards'?'Listenansicht':'Kartenansicht'}">${icon(homeViewMode()==='cards'?'view-list':'view-cards',22)}</button><button class="dashboard-filter" type="button" data-action="home-filter" aria-label="Termine filtern, aktuell ${currentFilter}">${currentFilter} ${icon('down',18)}</button></div></div>
+ <div class="dashboard-section-head"><div><h2>Unsere Termine</h2></div><div class="fz-dashboard-controls"><button type="button" class="fz-view-button" data-action="home-view" aria-label="${homeViewMode()==='cards'?'Zur kompakten Listenansicht wechseln':'Zur großen Kartenansicht wechseln'}" title="${homeViewMode()==='cards'?'Listenansicht':'Kartenansicht'}">${icon(homeViewMode()==='cards'?'view-list':'view-cards',22)}</button><button class="dashboard-filter" type="button" data-action="home-filter" aria-label="Termine filtern, aktuell ${currentFilter}">${currentFilter} ${icon('down',18)}</button></div></div>
  <section class="event-list dashboard-events ${homeViewMode()==='list'?'fz-dashboard-list':'fz-dashboard-cards'}" aria-label="Anstehende Familientermine">
  ${visible.length?visible.map((e,i)=>homeViewMode()==='list'?homeListRow(e,i===0):eventCard(e,i===0)).join(''):`<div class="empty-state home-empty">${icon('calendar',34)}<h3>${homeFilter==='all'?'Noch keine Termine':'Keine passenden Termine'}</h3><p>${homeFilter==='all'?'Plane euren nächsten gemeinsamen Moment.':'Wechsle zu „Alle“, um alle Termine zu sehen.'}</p>${homeFilter==='all'?`<button class="btn primary" data-action="new-event">Termin erstellen</button>`:''}</div>`}
  </section>`;
@@ -293,7 +358,7 @@ function eventCard(e,featured=false){
  const days=poll?null:Math.max(0,daysBetween(localDate(),e.event_date));
  const countdown=days===0?'Heute':days===1?'Morgen':`in ${days} Tagen`;
  const address=String(e.location_text||'').trim();
- const maps=routeUrl(e)&&!poll?`<a class="demo-map-link" title="Route mit Google Maps anzeigen" aria-label="Route nach ${safe(address)} in Google Maps öffnen" target="_blank" rel="noopener noreferrer" href="${routeUrl(e)}"><svg viewBox="0 0 28 30" width="24" height="24" aria-hidden="true"><path fill="#4285f4" d="M14 1C7 1 2 6.6 2 13.7 2 21 14 29 14 29s12-8 12-15.3C26 6.6 21 1 14 1Z"/><path fill="#34a853" d="M14 29S2 21 2 13.7c0-4.1 2.1-7.9 5.4-10.2l6.6 10.8V29Z"/><path fill="#fbbc04" d="M2.3 11.1C3.4 5.4 8.2 1 14 1c3.6 0 6.7 1.5 8.9 4L14 15 2.3 11.1Z"/><path fill="#ea4335" d="M26 13.7C26 21 14 29 14 29V15l8.9-10C24.9 7.3 26 10.2 26 13.7Z"/><circle cx="14" cy="13.2" r="5.2" fill="white"/><circle cx="14" cy="13.2" r="2.7" fill="#4285f4"/></svg></a>`:'';
+ const maps=routeUrl(e)&&!poll?`<a class="demo-map-link" title="Route mit Google Maps anzeigen" aria-label="Route nach ${safe(address)} in Google Maps öffnen" target="_blank" rel="noopener noreferrer" href="${routeUrl(e)}"><img class="fz-gmaps-real" src="https://www.gstatic.com/images/branding/product/2x/maps_96dp.png" alt="" loading="lazy" onload="this.nextElementSibling.style.display='none'" onerror="this.style.display='none'"><span class="fz-maps-fallback" aria-hidden="true" style="display:block">${icon('map',23)}</span></a>`:'';
  return `<article class="event-card family-event-card demo-refined-card ${featured?'is-next-event':''} ${poll?'is-poll-card':''} ${themeClass(e)} card-color-${safe(e.card_color||'blue')}">
   <span class="family-event-watermark demo-stronger-motif" aria-hidden="true">${icon(poll?'calendar':typeIcon(e.kind),126)}</span>
   <button class="demo-open-card" type="button" data-action="event" data-id="${e.id}" aria-label="${safe(e.title)}, Details öffnen">
@@ -302,7 +367,7 @@ function eventCard(e,featured=false){
     <span class="family-event-info"><span class="family-event-category">${poll?'TERMINABSTIMMUNG · '+safe(typeName(e.kind)):safe(typeName(e.kind))}</span><strong class="family-event-title">${safe(e.title)}</strong><span class="family-event-time">${icon('clock',19)} ${poll?`Abstimmung bis ${safe(deadline?.toLocaleDateString('de-DE')||'')}`:safe(appointmentTime(e))}</span><span class="family-event-host">${host?avatar(host,'xs'):icon('users',19)} <span class="host-identity"><b>Organisiert von</b><strong>${safe(hostLabel)}</strong></span></span></span>
     <span class="family-event-chevron" aria-hidden="true">${icon('chevron',22)}</span>
    </span>
-   ${e.teaser?`<span class="family-event-teaser">${safe(e.teaser)}</span>`:''}
+   <span class="family-event-teaser ${e.teaser?'':'is-empty'}" ${e.teaser?'':'aria-hidden="true"'} title="${safe(e.teaser||'')}">${safe(e.teaser||'')}</span>
   </button>
   <div class="demo-counts-row" aria-label="${poll?count+' Optionen, '+voted+' Abstimmungen':invitations+' eingeladen, '+yesVotes+' zugesagt'}">
     ${poll?`<span>${icon('calendar',17)} ${count} Vorschläge</span><span>${icon('users',17)} ${voted} abgestimmt</span>`:`<span>${icon('users',18)} ${invitations} eingeladen</span><span class="demo-confirmed">${icon('check',17)} ${yesVotes} zugesagt</span>`}
@@ -316,12 +381,12 @@ function calendarView(){
  const y=month.getFullYear(),m=month.getMonth()+1,first=(new Date(y,m-1,1).getDay()+6)%7,last=new Date(y,m,0).getDate();let cells='';
  for(let i=0;i<first;i++)cells+='<span class="date-gap"></span>';
  for(let d=1;d<=last;d++){
-   const date=iso(y,m,d),hasEvent=data.events.some(e=>visibleToCurrentUser(e)&&(isPoll(e)?new Date(e.poll_deadline).toLocaleDateString('sv-SE')===date:e.event_date===date)&&e.status!=='cancelled'),birthdayPeople=data.people.filter(p=>birthdayInYear(p,y)===date),birthday=birthdayPeople.length>0;
+   const date=iso(y,m,d),dayMatches=data.events.filter(e=>visibleToCurrentUser(e)&&e.status!=='cancelled'&&(isPoll(e)?new Date(e.poll_deadline).toLocaleDateString('sv-SE')===date:e.event_date===date)),hasEvent=dayMatches.length>0,birthdayPeople=data.people.filter(p=>birthdayInYear(p,y)===date),birthday=birthdayPeople.length>0;
    const birthdayName=birthdayPeople.map(p=>p.display_name).join(', ');
-   cells+=`<button class="calendar-day ${birthday?'has-birthday':''} ${date===selectedDay?'selected':''} ${date===localDate()?'today':''}" data-action="calendar-day" data-date="${date}" title="${birthday?safe('Geburtstag: '+birthdayName):safe(fmt(date))}" aria-label="${safe(fmt(date))}${birthday?', Geburtstag von '+safe(birthdayName):''}${hasEvent?', Termin':''}"><span class="calendar-day-number">${d}</span><span class="day-dots">${birthday?`<span class="birthday-calendar-gift" aria-hidden="true">${icon('gift',15)}</span>`:''}${hasEvent?'<i class="event-dot"></i>':''}</span></button>`;
+   cells+=`<button class="calendar-day ${hasEvent?'has-event fz-day-'+safe(dayMatches[0].card_color||'blue'):''} ${birthday?'has-birthday':''} ${date===selectedDay?'selected':''} ${date===localDate()?'today':''}" data-action="calendar-day" data-date="${date}" title="${birthday?safe('Geburtstag: '+birthdayName):safe(fmt(date))}" aria-label="${safe(fmt(date))}${birthday?', Geburtstag von '+safe(birthdayName):''}${hasEvent?', Termin':''}"><span class="calendar-day-number">${d}</span><span class="day-dots">${birthday?`<span class="birthday-calendar-gift" aria-hidden="true">${icon('gift',15)}</span>`:''}${dayMatches.length===1?`<span class="fz-calendar-event-symbol" aria-hidden="true">${icon(typeIcon(dayMatches[0].kind),17)}</span>`:''}${dayMatches.length>1?dayMatches.slice(0,3).map(e=>`<span class="fz-calendar-mark fz-mark-${safe(e.card_color||'blue')}" title="${safe(e.title)}" aria-hidden="true"></span>`).join(''):''}</span></button>`;
  }
- const date=selectedDay,dayEvents=data.events.filter(e=>visibleToCurrentUser(e)&&isPoll(e)?new Date(e.poll_deadline).toLocaleDateString('sv-SE')===date:e.event_date===date).sort((a,b)=>String(a.event_time).localeCompare(String(b.event_time))),birthdays=data.people.filter(p=>birthdayInYear(p,+date.slice(0,4))===date);
- return `<div class="page-head"><p class="eyebrow">ALLES AUF EINEN BLICK</p><h1>Unser Kalender</h1><p>Deine Termine und die Geburtstage der Familie.</p></div><section class="calendar-panel"><div class="month-heading"><h2>${safe(month.toLocaleDateString('de-DE',{month:'long',year:'numeric'}))}</h2><div class="month-controls"><button data-action="month-prev" aria-label="Vorheriger Monat">${icon('left',22)}</button><button data-action="month-next" aria-label="Nächster Monat">${icon('chevron',22)}</button></div></div><div class="weekday-grid">${['Mo','Di','Mi','Do','Fr','Sa','So'].map(x=>`<span>${x}</span>`).join('')}</div><div class="month-grid">${cells}</div><div class="calendar-legend"><span>${icon('gift',17)} Geburtstag</span><span><i class="event-dot"></i> Termin</span></div></section>
+ const date=selectedDay,dayEvents=data.events.filter(e=>visibleToCurrentUser(e)&&e.status!=='cancelled'&&(isPoll(e)?new Date(e.poll_deadline).toLocaleDateString('sv-SE')===date:e.event_date===date)).sort((a,b)=>String(a.event_time).localeCompare(String(b.event_time))),birthdays=data.people.filter(p=>birthdayInYear(p,+date.slice(0,4))===date);
+ return `<div class="page-head"><p class="eyebrow">ALLES AUF EINEN BLICK</p><h1>Unser Kalender</h1><p>Deine Termine und die Geburtstage der Familie.</p></div><section class="calendar-panel"><div class="month-heading"><h2>${safe(month.toLocaleDateString('de-DE',{month:'long',year:'numeric'}))}</h2><div class="month-controls"><button class="fz-today-button" type="button" data-action="calendar-today">Heute</button><button class="fz-cal-gift" type="button" data-action="birthdays" aria-label="Geburtstage anzeigen" title="Geburtstage">${icon('gift',21)}</button><button data-action="month-prev" aria-label="Vorheriger Monat">${icon('left',22)}</button><button data-action="month-next" aria-label="Nächster Monat">${icon('chevron',22)}</button></div></div><div class="weekday-grid">${['Mo','Di','Mi','Do','Fr','Sa','So'].map(x=>`<span>${x}</span>`).join('')}</div><div class="month-grid">${cells}</div><div class="calendar-legend"><span>${icon('gift',17)} Geburtstag</span><span><i class="fz-calendar-mark fz-mark-blue"></i> Termine in Kartenfarbe</span></div></section>
  <div class="section-title"><div><p class="eyebrow">${safe(fmt(date,{weekday:'long'}).toUpperCase())}</p><h2>${safe(fmt(date,{day:'numeric',month:'long'}))}</h2></div></div>
  <div class="day-list">${birthdays.map(p=>`<button class="birthday-day-card" data-action="person" data-id="${p.id}">${avatar(p,'md')}<span><strong>${safe(p.display_name)} hat Geburtstag!</strong><small>Tippen, um eine Feier zu planen</small></span>${icon('gift',25)}</button>`).join('')}${dayEvents.map(e=>eventCard(e)).join('')}${!dayEvents.length&&!birthdays.length?'<div class="empty-state compact">Noch nichts an diesem Tag geplant.</div>':''}</div>`;
 }
@@ -354,7 +419,7 @@ function renderModal(){if(!modal)return;if(modal.type==='new')storeEventDraft();
  else if(type==='invite'){const p=person(id);title='Einladung für '+p.display_name;eyebrow='EINFACHER ERSTZUGANG';const link=invitationLink(modal.code||'');body=`<p class="form-help">${safe(p.display_name)} öffnet den Link und richtet das eigene Passwort ein. Das Profil wird automatisch mit eurem gemeinsamen Kalender verbunden.</p><div class="invitation-code">${safe(link)}</div><button class="btn primary wide" data-action="share-invite">${icon('send',19)} Einladung teilen</button><button class="btn secondary wide" data-action="copy-invite">${icon('check',19)} Link kopieren</button><p class="form-help notice">Der Link gilt 14 Tage und lässt sich nur einmal verwenden. Bitte nur der vorgesehenen Person schicken.</p>`;}
  else if(type==='install'){title='Familienzeit installieren';eyebrow='AUF DEINEM HANDY';body=installGuide();}
  else if(type==='push-guide'){title='Benachrichtigungen';eyebrow='AUF DEINEM SMARTPHONE';body=pushGuide();}
- $('#modal-root').innerHTML=modalFrame(title,body,eyebrow);if(type==='new'){restoreEventDraft();toggleNewEventMode($('#new-event-form'));syncMeetingPlace($('#new-event-form'));syncGuestPicker($('#new-event-form'));updateWizardHostSummary($('#new-event-form'));setWizardStep(wizardStep,false);}if(type==='edit'){syncMeetingPlace($('#edit-event-form'));syncGuestPicker($('#edit-event-form'));}
+ $('#modal-root').innerHTML=modalFrame(title,body,eyebrow);if(type==='new'){restoreEventDraft();toggleNewEventMode($('#new-event-form'));syncMeetingPlace($('#new-event-form'));syncGuestPicker($('#new-event-form'));updateWizardHostSummary($('#new-event-form'));setWizardStep(wizardStep,false);installInAppPickers($('#new-event-form'));}if(type==='edit'){syncMeetingPlace($('#edit-event-form'));syncGuestPicker($('#edit-event-form'));}
 }
 function colorPicker(selected='blue'){
  return `<fieldset class="field-group color-field"><legend>Farbe auswählen</legend><p class="form-help">Deine Farbe wird später auch auf der Terminkarte angezeigt.</p><div class="color-options">${COLORS.map(v=>`<label class="color-option" title="${safe(v.name)}"><input type="radio" name="card_color" value="${v.id}" aria-label="${safe(v.name)}" ${selected===v.id?'checked':''}><span class="color-option-face"><i class="color-dot swatch-${v.id}"></i></span></label>`).join('')}</div></fieldset>`;
@@ -481,9 +546,10 @@ function wizardValid(form,step){
  if(step===0){if(!val('title')){toast('Bitte gib deinem Termin einen Namen.');form.querySelector('[name="title"]')?.focus();return false;}return true;}
  if(step===1){const isPoll=form.querySelector('input[name="plan_mode"]:checked')?.value==='poll';
   if(isPoll){const rows=[...form.querySelectorAll('[data-poll-row]')];const opts=rows.map(row=>({d:row.querySelector('input[type="date"]')?.value,t:row.querySelector('input[type="time"]')?.value}));
-   if(opts.length<2||opts.some(x=>!x.d||!x.t)||new Set(opts.map(x=>x.d+'T'+x.t)).size!==opts.length){toast('Bitte mindestens zwei unterschiedliche Terminvorschläge eintragen.');return false;}
+   if(opts.length<2||opts.some(x=>!isFutureStart(x.d,x.t))||new Set(opts.map(x=>x.d+'T'+x.t)).size!==opts.length){toast('Bitte mindestens zwei unterschiedliche Terminvorschläge eintragen.');return false;}
    const expiry=new Date(val('poll_deadline')),earliest=new Date(opts.map(o=>o.d+'T'+o.t).sort()[0]);if(!val('poll_deadline')||expiry<=new Date()||expiry>=earliest){toast('Bitte eine Abstimmungsfrist vor dem ersten Termin wählen.');return false;}
   }else{if(!val('date')||!val('time')||!val('deadline')){toast('Bitte Datum, Beginn und Antwortfrist angeben.');return false;}
+   if(!isFutureStart(val('date'),val('time'))){toast('Der Beginn muss in der Zukunft liegen.');return false;}
    if(val('deadline')>val('date')){toast('Die Antwortfrist muss spätestens am Termintag sein.');return false;}
    if(val('end_time')&&val('end_time')<=val('time')){toast('Das Ende muss nach dem Beginn liegen.');return false;}}
   return true;}
@@ -621,7 +687,7 @@ function eventDetail(e){
   ${e.teaser?`<p class="fz-detail-teaser">${safe(e.teaser)}</p>`:''}
   <div class="fz-detail-topics">
     <section class="fz-detail-topic fz-detail-host"><span class="fz-detail-topic-icon">${icon('users',25)}</span><div><small>Gastgeber</small><strong>${safe(hostNames(e))}</strong></div>${host?avatar(host,'md'):''}</section>
-    <section class="fz-detail-topic fz-detail-address"><span class="fz-detail-topic-icon">${icon('map',25)}</span><div><small>Wo treffen wir uns?</small><strong>${safe(location||'Treffpunkt noch nicht angegeben')}</strong></div>${mapsHref?`<a class="fz-detail-route" href="${mapsHref}" target="_blank" rel="noopener noreferrer" title="Route nach ${safe(location)} in Google Maps anzeigen" aria-label="Route nach ${safe(location)} öffnen">${icon('map',20)} <span>Route</span></a>`:''}</section>
+    <section class="fz-detail-topic fz-detail-address"><span class="fz-detail-topic-icon">${icon('map',25)}</span><div><small>Wo treffen wir uns?</small><strong>${safe(location||'Treffpunkt noch nicht angegeben')}</strong></div>${mapsHref?`<a class="fz-detail-route" href="${mapsHref}" target="_blank" rel="noopener noreferrer" title="Route nach ${safe(location)} in Google Maps anzeigen" aria-label="Route nach ${safe(location)} öffnen"><img class="fz-gmaps-real" src="https://www.gstatic.com/images/branding/product/2x/maps_96dp.png" alt="" loading="lazy" onload="this.nextElementSibling.style.display='none'" onerror="this.style.display='none'"><span class="fz-maps-fallback" aria-hidden="true" style="display:block">${icon('map',23)}</span> <span>Route</span></a>`:''}</section>
   </div>
   ${e.description?`<section class="fz-detail-panel fz-detail-notes"><h3>Wichtige Hinweise</h3><p>${safe(e.description)}</p></section>`:''}
   ${e.status==='active'?`<button type="button" class="fz-detail-reminder" data-action="reminders" data-id="${safe(e.id)}"><span class="fz-detail-reminder-icon">${icon('bell',26)}</span><span><strong>Mich erinnern</strong><small>${safe(reminderSummary(e.id))}</small></span>${icon('chevron',23)}</button>`:''}
@@ -631,9 +697,20 @@ function eventDetail(e){
     <div class="rsvp-actions fz-detail-rsvp-options"><button class="rsvp-btn yes ${ownResponse?.status==='yes'?'selected':''}" data-action="respond" data-id="${e.id}" data-response="yes">${icon('check',27)} <span>Zusagen</span></button><button class="rsvp-btn maybe ${ownResponse?.status==='maybe'?'selected':''}" data-action="respond" data-id="${e.id}" data-response="maybe">${icon('info',26)} <span>Vielleicht</span></button><button class="rsvp-btn no ${ownResponse?.status==='no'?'selected':''}" data-action="respond" data-id="${e.id}" data-response="no">${icon('x',27)} <span>Absagen</span></button></div>
     ${ownResponse?.status==='yes'?`<div class="fz-detail-companion"><h4>Wer kommt mit?</h4><p>Du bist schon dabei. Wähle weitere Personen aus deinem Haushalt.</p><div class="companion-list">${localCompanions.map(p=>`<label class="companion-person">${avatar(p,'sm')}<span>${safe(p.display_name)}</span><input type="checkbox" data-action="companion" data-event="${e.id}" data-person="${p.id}" ${yourGuests.includes(p.id)?'checked':''}></label>`).join('')||'<p>Keine weiteren Personen hinterlegt.</p>'}</div></div>`:''}
    </section>`:''}
-  <section class="fz-detail-panel fz-detail-attendees"><header><h3>Wer ist dabei?</h3><span class="fz-detail-attendee-count">${confirmed.size} ${confirmed.size===1?'Person':'Personen'}</span></header>
-    ${confirmed.size?`<div class="attendee-avatars">${[...confirmed].map(id=>`<span>${avatar(id,'sm')}${safe(person(id).display_name)}</span>`).join('')}</div>`:'<p class="fz-detail-lead">Noch keine Zusagen.</p>'}
-    ${missing.length?`<p class="fz-detail-pending"><b>Antwort steht noch aus:</b> ${missing.map(p=>safe(p.display_name)).join(', ')}</p>`:''}
+  <section class="fz-detail-panel fz-detail-attendees fz-invite-status-panel"><header><h3>${icon('users',23)} Eingeladen & Rückmeldungen</h3><span class="fz-detail-attendee-count">${confirmed.size} zugesagt</span></header>
+    <p class="fz-detail-lead">Alle Eingeladenen auf einen Blick. Farbige Bilder mit Haken bedeuten eine Zusage.</p>
+    <div class="fz-invite-grid" role="list" aria-label="Eingeladene Personen und ihr Status">
+    ${[...new Set([...eventInvites(e.id),...allHosts(e).map(p=>p.id)])].map(pid=>{
+      const p=person(pid),isHost=hostIds.has(pid),answer=responseFor(e.id,pid);
+      const hasYes=confirmed.has(pid)||answer?.status==='yes';
+      const declined=!hasYes&&answer?.status==='no';
+      const uncertain=!hasYes&&answer?.status==='maybe';
+      const label=hasYes?'Zugesagt':declined?'Abgesagt':uncertain?'Vielleicht':'Noch offen';
+      const state=hasYes?'confirmed':declined?'declined':uncertain?'maybe':'pending';
+      const symbol=hasYes?icon('check',13):declined?icon('x',12):uncertain?icon('info',12):icon('clock',12);
+      return `<div class="fz-invite-person is-${state}" role="listitem" title="${safe(p.display_name)}: ${label}"><span class="fz-invite-avatar">${avatar(p,'md')}<span class="fz-invite-state-symbol" aria-hidden="true">${symbol}</span></span><span class="fz-invite-person-name">${safe(p.display_name)}</span><small>${isHost?'Gastgeber · ':''}${label}</small></div>`;
+    }).join('')}
+    </div>
     ${hostSelf&&e.status==='active'&&localCompanions.length&&ownResponse?.status==='yes'?`<details class="fz-host-companions"><summary>Weitere Begleitung aus deinem Haushalt</summary><p class="fz-detail-lead">Andere Gastgeber sind automatisch dabei.</p><div class="companion-list">${localCompanions.map(p=>`<label class="companion-person">${avatar(p,'sm')}<span>${safe(p.display_name)}</span><input type="checkbox" data-action="companion" data-event="${e.id}" data-person="${p.id}" ${yourGuests.includes(p.id)?'checked':''}></label>`).join('')}</div></details>`:''}
     ${hostSelf&&missing.length&&e.status==='active'?`<div class="nudge-list">${missing.map(p=>`<button class="btn secondary small" data-action="nudge" data-id="${e.id}" data-person="${p.id}">${icon('bell',18)} ${safe(p.display_name)} erinnern</button>`).join('')}</div>`:''}
   </section>
@@ -700,6 +777,7 @@ function pendingView(){const list=pendingEvents();return `<p class="form-help">$
 
 function currentForm(){return $('#modal-root form');}
 function formValues(form){const f=new FormData(form);return {f,date:String(f.get('date')||''),time:String(f.get('time')||''),deadline:String(f.get('deadline')||'')};}
+function isFutureStart(date,time){return !!date&&!!time&&new Date(date+'T'+time+':00').getTime()>Date.now();}
 function formValidDates(date,deadline){if(!date||!deadline||deadline>date){toast('Die Antwortfrist muss spätestens am Termintag liegen.');return false;}if(date<localDate()){toast('Der Termin muss heute oder in der Zukunft liegen.');return false;}return true;}
 function invitedFromForm(form){const ids=[...form.querySelectorAll('input[name="invitees"]:checked')].map(x=>x.value);ids.push(me().id);return [...new Set(ids)];}
 async function saveNewEvent(form){
@@ -715,14 +793,14 @@ async function saveNewEvent(form){
  if(planMode==='poll'){
   const fields=[...form.querySelectorAll('[data-poll-row]')];
   const choices=fields.map(row=>({date:row.querySelector('input[type="date"]')?.value||'',time:row.querySelector('input[type="time"]')?.value||''}));
-  if(choices.length<2||choices.length>8||choices.some(c=>!c.date||!c.time||c.date<localDate())){toast('Bitte zwei bis acht gültige Termine auswählen.');return;}
+  if(choices.length<2||choices.length>8||choices.some(c=>!isFutureStart(c.date,c.time))){toast('Bitte zwei bis acht gültige Termine auswählen.');return;}
   const keys=new Set(choices.map(c=>c.date+'T'+c.time));if(keys.size!==choices.length){toast('Jeder Vorschlag muss unterschiedlich sein.');return;}
   const end=String(f.get('poll_deadline')||''),deadline=new Date(end),earliest=choices.map(c=>new Date(c.date+'T'+c.time)).sort((a,b)=>a-b)[0];
   if(!end||Number.isNaN(deadline.getTime())||deadline.getTime()<Date.now()+10*60*1000||deadline>=earliest){toast('Die Abstimmung muss frühestens in 10 Minuten und vor dem ersten Vorschlag enden.');return;}
   payload.p_poll_deadline=deadline.toISOString();payload.p_options=choices.map(c=>({date:c.date,time:c.time}));
  }else{
   const {date,time,deadline}=formValues(form);if(!formValidDates(date,deadline))return;
-  const endTime=String(f.get('end_time')||'');if(!time){toast('Bitte eine Start- bzw. Treffzeit eingeben.');return;}if(endTime&&endTime<=time){toast('Die Endzeit muss nach der Startzeit liegen.');return;}
+  const endTime=String(f.get('end_time')||'');if(!time){toast('Bitte eine Start- bzw. Treffzeit eingeben.');return;}if(!isFutureStart(date,time)){toast('Der Terminbeginn muss in der Zukunft liegen.');return;}if(endTime&&endTime<=time){toast('Die Endzeit muss nach der Startzeit liegen.');return;}
   payload.p_event_date=date;payload.p_event_time=time;payload.p_deadline=deadline;payload.p_end_time=endTime||null;
  }
  await work(()=>API.createEvent(payload),planMode==='poll'?'Terminabstimmung gestartet.':'Einladung erstellt.',async id=>{birthdayDraft=null;showModal('event',id);clearEventDraft();});
@@ -920,6 +998,8 @@ document.addEventListener('click',async ev=>{
  if(a==='notification-open'){await readNotification(id);return;}
  if(a==='enable-notifications'){await enableNotifications();return;}
  if(a==='calendar-day'){selectedDay=el.dataset.date;render();return;}
+ if(a==='calendar-today'){selectedDay=localDate();const today=new Date();month=new Date(today.getFullYear(),today.getMonth(),1);render();return;}
+ if(a==='add-poll-option'){setTimeout(()=>installInAppPickers($('#new-event-form')),0);}
  if(a==='month-prev'||a==='month-next'){month.setDate(1);month.setMonth(month.getMonth()+(a==='month-next'?1:-1));selectedDay=iso(month.getFullYear(),month.getMonth()+1,1);render();return;}
  if(a==='respond'){await applyResponse(id,el.dataset.response);return;}
  if(a==='nudge'){await work(()=>API.nudge(id,el.dataset.person),'Persönliche Erinnerung in der App verschickt.',async()=>showModal('event',id));return;}
@@ -931,6 +1011,12 @@ document.addEventListener('click',async ev=>{
   if((e.response_deadline||e.event_date)>alt.proposed_date){toast('Antwortfrist liegt nach dem vorgeschlagenen Termin. Bitte über „Verschieben“ anpassen.');return;}
   showModal('move',id);const form=$('#move-event-form');if(form){form.querySelector('[name="date"]').value=alt.proposed_date;form.querySelector('[name="time"]').value=String(alt.proposed_time).slice(0,5);if(form.querySelector('[name="deadline"]').value>alt.proposed_date)form.querySelector('[name="deadline"]').value=alt.proposed_date;}return;}
 });
+document.addEventListener('keydown',ev=>{
+ if(ev.key==='Enter'&&ev.target.matches('#new-event-form .place-query')){
+  ev.preventDefault();ev.stopImmediatePropagation();
+  toast('Ortssuche: Bitte einen Vorschlag auswählen oder auf „Weiter“ tippen.');
+ }
+},true);
 document.addEventListener('submit',async ev=>{
  const form=ev.target;ev.preventDefault();const id=form.id;
  if(id==='register-form'){const d=new FormData(form),code=String(d.get('code')||'').trim(),email=String(d.get('email')||'').trim(),password=String(d.get('password')||'');if(password.length<10){toast('Passwort mindestens 10 Zeichen');return;}await work(async()=>{await API.registerWithInvite(code,email,password);await API.login(email,password);user=await API.getUser();if(!user)throw Error('Anmeldung nach Registrierung fehlgeschlagen');await fetchData();if(mode!=='ready')throw Error('Familienprofil konnte nicht zugeordnet werden');localStorage.setItem('fz11-show-install','yes');unsubscribe?.();unsubscribe=API.subscribe(scheduleRefresh);inviteCode='';history.replaceState(null,'',location.pathname);},'Willkommen in Familienzeit!');return;}
@@ -958,7 +1044,7 @@ document.addEventListener('submit',async ev=>{
   if(!days.length&&!exact&&!repeatDays){await work(()=>API.deleteReminders(eventId),'Erinnerungen ausgeschaltet.',async()=>showModal('event',eventId));return;}
   await work(()=>API.saveReminders(eventId,user.id,{days_before:days,repeat_every_days:repeatDays,remind_time:remindTime,exact_at:when?.toISOString()||null,updated_at:new Date().toISOString()}),'Deine Erinnerungen wurden gespeichert.',async()=>showModal('event',eventId));
  }
- else if(id==='new-event-form')await saveNewEvent(form);
+ else if(id==='new-event-form'){if(wizardStep!==4){toast('Bitte alle Schritte bis zur Zusammenfassung durchgehen.');return;}if(![0,1,2,3].every(i=>wizardValid(form,i)))return;await saveNewEvent(form);}
  else if(id==='edit-event-form')await saveExistingEvent(form);
  else if(id==='move-event-form')await moveEvent(form);
  else if(id==='cancel-event-form'){const evObj=data.events.find(e=>e.id===form.dataset.id);if(!isEventAdmin(evObj)||evObj?.status!=='active')return;const reason=String(new FormData(form).get('reason')||'').trim();if(!confirm('Termin endgültig absagen? Alle Eingeladenen werden informiert.'))return;await work(()=>API.updateEvent(evObj.id,{status:'cancelled',cancellation_reason:reason}),'Termin abgesagt. Die Familie wurde informiert.',async()=>showModal('event',evObj.id));}
@@ -1058,7 +1144,7 @@ window.addEventListener('focus',checkOnReturn);
 window.addEventListener('online',checkOnReturn);
 window.setInterval(()=>checkForAppUpdate(),UPDATE_CHECK_INTERVAL);
 if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost')){
- navigator.serviceWorker.register('./sw.js?v=160',{updateViaCache:'none'})
+ navigator.serviceWorker.register('./sw.js?v=202',{updateViaCache:'none'})
   .then(reg=>{
    reg.update().catch(()=>{});
    // Falls der SW das Update unabhaengig entdeckt, sofort den Hinweis aktualisieren.
